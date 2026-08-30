@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>PokeCUA - NDS Emulator</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+      font-family: monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    h1 { margin: 0 0 10px 0; font-size: 16px; color: #e94560; }
+    #status {
+      margin-bottom: 10px;
+      padding: 8px 16px;
+      background: #16213e;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    #status.ready { color: #0f3460; background: #4ecca3; }
+    #status.error { color: #fff; background: #e94560; }
+    desmond-player {
+      display: block;
+      border: 2px solid #e94560;
+      border-radius: 4px;
+    }
+    #controls {
+      margin-top: 10px;
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .btn {
+      padding: 8px 16px;
+      background: #16213e;
+      color: #eee;
+      border: 1px solid #e94560;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .btn:hover { background: #e94560; }
+    .btn:active { background: #0f3460; }
+  </style>
+</head>
+<body>
+  <h1>PokeCUA - NDS Emulator</h1>
+  <div id="status">Loading emulator...</div>
+  <desmond-player id="player"></desmond-player>
+  <div id="controls">
+    <button class="btn" onclick="sendKey('up')">UP</button>
+    <button class="btn" onclick="sendKey('down')">DOWN</button>
+    <button class="btn" onclick="sendKey('left')">LEFT</button>
+    <button class="btn" onclick="sendKey('right')">RIGHT</button>
+    <button class="btn" onclick="sendKey('a')" style="background:#e94560">A</button>
+    <button class="btn" onclick="sendKey('b')">B</button>
+    <button class="btn" onclick="sendKey('start')">START</button>
+    <button class="btn" onclick="sendKey('select')">SELECT</button>
+    <button class="btn" onclick="sendKey('x')">X</button>
+    <button class="btn" onclick="sendKey('y')">Y</button>
+    <button class="btn" onclick="sendKey('l')">L</button>
+    <button class="btn" onclick="sendKey('r')">R</button>
+  </div>
+
+  <script src="./desmond.min.js" onerror="document.getElementById('status').textContent='ERROR: desmond.min.js failed to load'; document.getElementById('status').className='error'"></script>
+  <script>
+    console.log('desmond.min.js loaded:', typeof DesmondPlayer);
+    const player = document.getElementById('player');
+    const status = document.getElementById('status');
+
+    // Expose functions for Playwright to call
+    window.pokecua = {
+      loaded: false,
+      loadROM: function(url) {
+        status.textContent = 'Loading ROM...';
+        status.className = '';
+        player.loadURL(url, function() {
+          status.textContent = 'ROM loaded - Ready';
+          status.className = 'ready';
+          window.pokecua.loaded = true;
+        });
+      },
+      screenshot: function() {
+        // Desmond renders to a canvas inside the shadow DOM
+        const canvas = player.shadowRoot.querySelector('canvas');
+        if (canvas) {
+          return canvas.toDataURL('image/png');
+        }
+        return null;
+      },
+      pressKey: function(key) {
+        sendKey(key);
+      }
+    };
+
+    function sendKey(key) {
+      // Desmond key mapping
+      const keyMap = {
+        'up': 'up', 'down': 'down', 'left': 'left', 'right': 'right',
+        'a': 'a', 'b': 'b', 'x': 'x', 'y': 'y',
+        'start': 'start', 'select': 'select', 'l': 'l', 'r': 'r'
+      };
+      const mapped = keyMap[key.toLowerCase()];
+      if (mapped && player.keyboard) {
+        player.keyboard.press(mapped);
+      }
+    }
+
+    status.textContent = 'Emulator ready - load a ROM';
+    console.log('pokecua API ready');
+  </script>
+</body>
+</html>

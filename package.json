@@ -1,0 +1,14 @@
+{
+  "name": "pokecua-playwright",
+  "version": "1.0.0",
+  "description": "Headless NDS emulator via Playwright + desmond. All input stays in the browser tab.",
+  "main": "play.js",
+  "scripts": {
+    "play": "node play.js",
+    "test": "node test.js"
+  },
+  "keywords": ["nds", "emulator", "playwright", "headless", "pokemon"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
