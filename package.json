@@ -1,14 +1,31 @@
 {
   "name": "pokecua-playwright",
   "version": "1.0.0",
-  "description": "Headless NDS emulator via Playwright + desmond. All input stays in the browser tab.",
-  "main": "play.js",
+  "description": "Headless Pokemon agent via Playwright + desmond (DeSmuME-wasm). All input stays in the browser tab.",
+  "main": "dist/index.js",
   "scripts": {
-    "play": "node play.js",
-    "test": "node test.js"
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "test": "tsx test.ts"
   },
-  "keywords": ["nds", "emulator", "playwright", "headless", "pokemon"],
+  "keywords": [
+    "nds",
+    "emulator",
+    "playwright",
+    "headless",
+    "pokemon",
+    "ai-agent"
+  ],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
 }
