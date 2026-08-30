@@ -2,5 +2,7 @@ node_modules/
 dist/
 captures/
 rom.nds
+roms/
+*.nds
 *.rom
 .env

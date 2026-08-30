@@ -110,45 +110,88 @@ export class DecisionLoop {
 
   /** Decide what action to take based on game state */
   private decide(state: GameState): Action {
+    // Track exploration direction for overworld movement
+    if (!this._exploreDir) {
+      this._exploreDir = ['up', 'right', 'down', 'left'];
+      this._exploreIdx = 0;
+    }
+
     switch (state.phase) {
       case 'title':
-        // Press A to advance from title screen
         return { button: 'a', repeat: 3, delayMs: 400, reasoning: 'Title screen — pressing A to advance' };
 
       case 'intro':
-        // Skip intro cutscenes with A + Start
         return { button: 'a', repeat: 2, delayMs: 300, reasoning: 'Intro cutscene — pressing A to skip' };
 
       case 'name_entry':
-        // This is handled by a specialized name entry routine
-        // For now, press A to confirm
         return { button: 'a', repeat: 1, delayMs: 200, reasoning: 'Name entry — pressing A to confirm' };
 
       case 'dialog':
-        // Advance dialog text
-        return { button: 'a', repeat: 1, delayMs: 300, reasoning: 'Dialog — pressing A to advance text' };
+        // Advance dialog — press A repeatedly for text boxes
+        return { button: 'a', repeat: 2, delayMs: 250, reasoning: 'Dialog — pressing A to advance text' };
 
       case 'battle':
-        // Basic battle strategy
-        if (state.activePokemon && state.activePokemon.hpPercent < 20) {
-          return { button: 'run', repeat: 1, delayMs: 500, reasoning: 'Low HP — trying to run' } as any;
-        }
-        return { button: 'a', repeat: 1, delayMs: 300, reasoning: 'Battle — selecting FIGHT' };
+        return this.decideBattle(state);
 
       case 'menu':
-        // Close menu
         return { button: 'b', repeat: 1, delayMs: 200, reasoning: 'Menu open — closing with B' };
 
       case 'overworld':
-        // Explore: move in a direction
-        const directions = ['up', 'down', 'left', 'right'] as const;
-        const dir = directions[Math.floor(Math.random() * directions.length)];
-        return { button: dir, repeat: 3, delayMs: 200, reasoning: `Overworld — walking ${dir}` };
+        return this.decideOverworld(state);
 
       default:
-        // Unknown state: press A and hope for the best
+        // Unknown: try A first, then B if stuck
+        const unknownCount = this._unknownCount++;
+        if (unknownCount > 3) {
+          this._unknownCount = 0;
+          return { button: 'b', repeat: 1, delayMs: 500, reasoning: 'Unknown state for too long — trying B to cancel' };
+        }
         return { button: 'a', repeat: 1, delayMs: 500, reasoning: 'Unknown state — pressing A' };
     }
+  }
+
+  private _exploreDir: readonly string[] = [];
+  private _exploreIdx = 0;
+  private _unknownCount = 0;
+  private _battleTurn = 0;
+
+  /** Battle decision strategy */
+  private decideBattle(state: GameState): Action {
+    const pokemon = state.activePokemon;
+
+    // Critical HP: try to run
+    if (pokemon && pokemon.hpPercent < 20) {
+      this._battleTurn = 0;
+      return { button: 'right', repeat: 2, delayMs: 200, reasoning: `Low HP (${pokemon.hpPercent}%) — navigating to RUN` };
+    }
+
+    // First turn: select FIGHT
+    if (this._battleTurn === 0) {
+      this._battleTurn++;
+      return { button: 'a', repeat: 1, delayMs: 300, reasoning: 'Battle — selecting FIGHT' };
+    }
+
+    // Subsequent turns: select first move
+    this._battleTurn++;
+    if (this._battleTurn > 10) this._battleTurn = 0; // safety reset
+    return { button: 'a', repeat: 1, delayMs: 400, reasoning: 'Battle — selecting first available move' };
+  }
+
+  /** Overworld exploration strategy */
+  private decideOverworld(state: GameState): Action {
+    // If we have a location, try to move toward something interesting
+    if (state.location) {
+      // Talk to nearby NPCs
+      return { button: 'a', repeat: 1, delayMs: 300, reasoning: `Overworld (${state.location}) — pressing A to interact` };
+    }
+
+    // Systematic exploration: walk in a rotating pattern
+    const dir = this._exploreDir[this._exploreIdx % this._exploreDir.length];
+    this._exploreIdx++;
+
+    // Walk a few steps in this direction
+    const steps = 2 + Math.floor(Math.random() * 3);
+    return { button: dir as any, repeat: steps, delayMs: 200, reasoning: `Overworld — exploring ${dir} (${steps} steps)` };
   }
 
   /** Save the game via in-game menu */
