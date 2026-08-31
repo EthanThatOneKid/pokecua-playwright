@@ -142,7 +142,7 @@ export class ChangeDetector {
 
     // Check rate limit — minimum 30s between parses to conserve quota
     const now = Date.now();
-    const minInterval = Math.max(30000, this.backoffMs); // At least 30s between parses
+    const minInterval = Math.max(5000, this.backoffMs); // At least 5s between parses (Nemotron is ~2s)
     const timeSinceLastParse = now - this.lastParseTime;
 
     if (timeSinceLastParse < minInterval) {

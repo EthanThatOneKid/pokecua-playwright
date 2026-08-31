@@ -70,11 +70,22 @@ async function main() {
           await emulator.stop();
           return;
         case 'overworld':
-          console.log('  → OVERWORLD!');
-          await emulator.screenshot('overworld_reached');
-          detector.addHistoryEntry(screen.phase, 'stay', screen.description);
-          await emulator.stop();
-          return;
+          // Don't exit immediately — verify it's really overworld, not intro cutscene
+          // The intro cutscene shows characters in a scene which looks like overworld
+          const history = detector.getHistory();
+          const lastPhase = history.length > 0 ? history[history.length - 1].phase : '';
+          if (lastPhase === 'title' || lastPhase === 'intro') {
+            console.log('  → Looks like overworld but last phase was ' + lastPhase + ' — waiting to verify...');
+            action = 'wait';
+            await sleep(5000);
+          } else {
+            console.log('  → OVERWORLD confirmed!');
+            await emulator.screenshot('overworld_reached');
+            detector.addHistoryEntry(screen.phase, 'stay', screen.description);
+            await emulator.stop();
+            return;
+          }
+          break;
         case 'name_entry':
           console.log('  → Name entry (A)');
           await emulator.pressButton('a');

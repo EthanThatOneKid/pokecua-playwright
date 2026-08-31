@@ -194,13 +194,20 @@ async function main() {
       // Record this screen + action in history for next parse
       detector.addHistoryEntry(screen.phase, action, screen.description);
 
-      // Check for terminal state
+      // Check for terminal state — but verify overworld isn't actually the intro cutscene
       if (screen.phase === 'overworld' && screen.confidence > 0.5) {
-        console.log('\n[bootstrap] Reached overworld! Saving game...');
-        await saveGame(emulator);
-        await emulator.screenshot('game_saved');
-        console.log('[bootstrap] Game saved! Done.');
-        return;
+        const history = detector.getHistory();
+        const lastPhase = history.length > 0 ? history[history.length - 1].phase : '';
+        if (lastPhase === 'title' || lastPhase === 'intro') {
+          console.log('  → Overworld detected but last phase was ' + lastPhase + ' — likely intro cutscene, waiting...');
+          await sleep(5000);
+        } else {
+          console.log('\n[bootstrap] Reached overworld! Saving game...');
+          await saveGame(emulator);
+          await emulator.screenshot('game_saved');
+          console.log('[bootstrap] Game saved! Done.');
+          return;
+        }
       }
 
       // Check for save screen
