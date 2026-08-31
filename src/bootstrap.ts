@@ -1,50 +1,24 @@
 /**
  * Bootstrap: plays Pokemon Platinum through intro to starter selection.
  * 
- * Uses vision parser at each decision point to detect what's on screen,
- * instead of guessing from color counts.
+ * Uses ChangeDetector for:
+ * 1. Pixel diff detection — only parse when screen changes (saves tokens)
+ * 2. Rate-limit-aware backoff — exponential backoff on 429
+ * 3. Fallback state machine — estimated phase when vision is unavailable
  * 
  * Usage:
  *   npx tsx src/bootstrap.ts roms/pokemon-platinum.nds --player-name ASH --rival-name GARY
  */
 
 import * as path from 'path';
-import * as fs from 'fs';
-import { execSync } from 'child_process';
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { Emulator } from './emulator';
 import { VisionParser } from './vision';
+import { ChangeDetector } from './detector';
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Take a screenshot and parse it with the vision model */
-async function see(
-  emulator: Emulator,
-  parser: VisionParser,
-  label: string,
-): Promise<{ phase: string; description: string; confidence: number; path: string }> {
-  const screenshotPath = await emulator.screenshot(label);
-  try {
-    const state = await parser.parse(screenshotPath);
-    return {
-      phase: state.phase,
-      description: state.description,
-      confidence: state.confidence,
-      path: screenshotPath,
-    };
-  } catch (e: any) {
-    // If parser fails (rate limit etc), return unknown
-    console.log(`    [vision] Parse failed: ${e.message?.substring(0, 80)}`);
-    return {
-      phase: 'unknown',
-      description: 'parse failed',
-      confidence: 0,
-      path: screenshotPath,
-    };
-  }
 }
 
 /** Type a name using D-pad navigation on the NDS keyboard grid */
@@ -123,6 +97,7 @@ async function main() {
 
   const emulator = new Emulator(outputDir);
   const parser = new VisionParser(process.env.GROQ_API_KEY!);
+  const detector = new ChangeDetector(emulator, parser);
 
   try {
     await emulator.start({ romPath });
@@ -130,127 +105,53 @@ async function main() {
     await sleep(5000);
 
     // ============================================================
-    // LOOP: See → Decide → Act → Repeat
+    // LOOP: Detect → Decide → Act → Repeat
     // ============================================================
     let step = 0;
-    const maxSteps = 80;
-    let consecutiveSame = 0;
-    let lastPhase = '';
+    const maxSteps = 100;
 
     while (step < maxSteps) {
       step++;
-      console.log(`\n--- Step ${step} ---`);
+      console.log(`\n--- Step ${step} [${detector.debug()}] ---`);
 
-      // SEE: What's on screen?
-      let screen;
-      try {
-        screen = await see(emulator, parser, `step_${step}`);
-      } catch (e: any) {
-        console.log(`  Vision failed: ${e.message?.substring(0, 60)}`);
-        screen = { phase: 'unknown', description: 'parse failed', confidence: 0, path: '' };
-      }
-      console.log(`  Vision: ${screen.phase} (${screen.confidence}) — ${screen.description.substring(0, 80)}`);
-
-      // Rate limit: Groq free tier is 8000 TPM, image parses use ~2000 tokens
-      // So we can do ~4 parses per minute. Always wait between vision calls.
-      await sleep(15000); // 15s between vision calls to stay under rate limit
-
-      // Track stuck states
-      if (screen.phase === lastPhase && screen.phase !== 'unknown') {
-        consecutiveSame++;
-      } else {
-        consecutiveSame = 0;
-      }
-      lastPhase = screen.phase;
+      // DETECT: What's on screen? (with pixel diff + rate limit awareness)
+      const screen = await detector.detect(`step_${step}`);
+      const source = screen.fromCache ? 'cached' : 'parsed';
+      console.log(`  Screen: ${screen.phase} (${screen.confidence}) [${source}] — ${screen.description.substring(0, 80)}`);
 
       // DECIDE + ACT
-      switch (screen.phase) {
-        case 'title':
-          if (consecutiveSame > 5) {
-            console.log('  → Stuck on title, trying A...');
-            await emulator.pressButton('a');
-          } else {
-            console.log('  → Pressing START');
-            await emulator.pressButton('start');
-          }
-          await sleep(3000);
-          break;
+      let action: string;
 
-        case 'intro':
-          console.log('  → Intro playing, waiting...');
-          await sleep(5000);
-          break;
-
-        case 'dialog':
-          console.log('  → Advancing dialog (A)');
-          await emulator.pressButton('a');
-          await sleep(2000);
-          break;
-
-        case 'gender_selection':
-          console.log('  → Confirming default gender (A)');
-          await emulator.pressButton('a');
-          await sleep(3000);
-          break;
-
-        case 'name_entry':
-          console.log(`  → Typing player name: ${playerName}`);
-          await typeName(emulator, playerName);
-          await sleep(3000);
-          break;
-
-        case 'menu':
-          console.log('  → Selecting New Game (A)');
-          await emulator.pressButton('a');
-          await sleep(3000);
-          break;
-
-        case 'overworld':
-          console.log('  → In overworld! Game started!');
-          await emulator.screenshot('overworld_reached');
-          // We're done — save the game
-          console.log('  → Opening menu to save...');
-          await emulator.pressButton('start');
-          await sleep(1000);
-          // Navigate to Save
-          for (let i = 0; i < 3; i++) {
-            await emulator.pressButton('down');
-            await sleep(200);
-          }
-          await emulator.pressButton('a');
-          await sleep(2000);
-          // Confirm save
-          await emulator.pressButton('a');
-          await sleep(3000);
-          await emulator.screenshot('game_saved');
-          console.log('\n[bootstrap] Game saved! Done.');
-          return;
-
-        case 'save_screen':
-          console.log('  → Save screen, confirming...');
-          await emulator.pressButton('a');
-          await sleep(2000);
-          break;
-
-        case 'battle':
-          console.log('  → In battle! Selecting FIGHT (A)');
-          await emulator.pressButton('a');
-          await sleep(2000);
-          break;
-
-        default: // unknown
-          console.log('  → Unknown state, trying A...');
-          await emulator.pressButton('a');
-          await sleep(2000);
-          break;
+      if (screen.confidence > 0) {
+        // Vision gave us a confident answer — use it
+        action = await actOnPhase(emulator, screen.phase, playerName, detector);
+      } else {
+        // Vision unavailable — use fallback state machine
+        const fallback = detector.getFallbackAction();
+        console.log(`  → Fallback: ${fallback.reasoning}`);
+        await emulator.pressButton(fallback.button);
+        detector.recordAction(fallback.button);
+        action = fallback.button;
+        await sleep(2000);
       }
 
-      // Safety: if we've been on the same unknown state for too long, try B
-      if (consecutiveSame > 8 && screen.phase === 'unknown') {
-        console.log('  → Stuck on unknown, trying B...');
-        await emulator.pressButton('b');
-        await sleep(2000);
-        consecutiveSame = 0;
+      // Check for terminal state
+      if (screen.phase === 'overworld' && screen.confidence > 0.5) {
+        console.log('\n[bootstrap] Reached overworld! Saving game...');
+        await saveGame(emulator);
+        await emulator.screenshot('game_saved');
+        console.log('[bootstrap] Game saved! Done.');
+        return;
+      }
+
+      // Check for save screen
+      if (screen.phase === 'save_screen' && screen.confidence > 0.5) {
+        console.log('\n[bootstrap] Save screen! Confirming...');
+        await emulator.pressButton('a');
+        await sleep(3000);
+        await emulator.screenshot('game_saved');
+        console.log('[bootstrap] Game saved! Done.');
+        return;
       }
     }
 
@@ -259,6 +160,102 @@ async function main() {
   } finally {
     await emulator.stop();
   }
+}
+
+/** Execute action based on detected phase */
+async function actOnPhase(
+  emulator: Emulator,
+  phase: string,
+  playerName: string,
+  detector: ChangeDetector,
+): Promise<string> {
+  switch (phase) {
+    case 'title':
+      console.log('  → Pressing START');
+      await emulator.pressButton('start');
+      detector.recordAction('start');
+      await sleep(3000);
+      return 'start';
+
+    case 'intro':
+      console.log('  → Intro playing, waiting...');
+      detector.recordAction('wait');
+      await sleep(5000);
+      return 'wait';
+
+    case 'dialog':
+      console.log('  → Advancing dialog (A)');
+      await emulator.pressButton('a');
+      detector.recordAction('a');
+      await sleep(2000);
+      return 'a';
+
+    case 'gender_selection':
+      console.log('  → Confirming default gender (A)');
+      await emulator.pressButton('a');
+      detector.recordAction('a');
+      await sleep(3000);
+      return 'a';
+
+    case 'name_entry':
+      console.log(`  → Typing player name: ${playerName}`);
+      await typeName(emulator, playerName);
+      detector.recordAction('typeName');
+      await sleep(3000);
+      return 'typeName';
+
+    case 'menu':
+      console.log('  → Selecting New Game (A)');
+      await emulator.pressButton('a');
+      detector.recordAction('a');
+      await sleep(3000);
+      return 'a';
+
+    case 'overworld':
+      console.log('  → In overworld!');
+      detector.recordAction('overworld');
+      return 'overworld';
+
+    case 'save_screen':
+      console.log('  → Save screen (A)');
+      await emulator.pressButton('a');
+      detector.recordAction('a');
+      await sleep(2000);
+      return 'a';
+
+    case 'battle':
+      console.log('  → In battle! Selecting FIGHT (A)');
+      await emulator.pressButton('a');
+      detector.recordAction('a');
+      await sleep(2000);
+      return 'a';
+
+    default:
+      console.log('  → Unknown, trying A...');
+      await emulator.pressButton('a');
+      detector.recordAction('a');
+      await sleep(2000);
+      return 'a';
+  }
+}
+
+/** Save game via in-game menu */
+async function saveGame(emulator: Emulator): Promise<void> {
+  await emulator.pressButton('start');
+  await sleep(1000);
+  // Navigate to Save (down 3 times)
+  for (let i = 0; i < 3; i++) {
+    await emulator.pressButton('down');
+    await sleep(200);
+  }
+  await emulator.pressButton('a');
+  await sleep(2000);
+  // Confirm save
+  await emulator.pressButton('a');
+  await sleep(3000);
+  // Close menu
+  await emulator.pressButton('b');
+  await sleep(500);
 }
 
 main().catch((err) => {
