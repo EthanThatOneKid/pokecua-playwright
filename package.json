@@ -22,6 +22,7 @@
   "type": "commonjs",
   "dependencies": {
     "@ai-sdk/groq": "^4.0.35",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
     "ai": "^7.0.85",
     "dotenv": "^17.4.2",
     "playwright": "^1.62.1",
