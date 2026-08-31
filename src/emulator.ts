@@ -107,22 +107,22 @@ export class Emulator {
     if (fs.existsSync(romDest)) fs.unlinkSync(romDest);
   }
 
-  /** Press an NDS button via Playwright keyboard (desmond listens on window.onkeydown) */
+  /** Press an NDS button via desmond's native keyboard API (NOT Playwright keyboard) */
   async pressButton(button: string, holdMs = 50): Promise<void> {
     if (!this.page) throw new Error('Emulator not started');
 
-    // Desmond key mapping (from desmond.min.js keyCode array):
-    // [39,37,40,38,16,13,90,88,65,83,81,87,-1,8]
-    // Right=39, Left=37, Down=40, Up=38, L=16, Start=13,
-    // A=90(z), B=88(x), Y=65(a), X=83(s), L=81(q), R=87(w)
-    const keyMap: Record<string, string> = {
-      a: 'z', b: 'x', x: 's', y: 'a',
-      up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
-      start: 'Enter', select: 'Backspace', l: 'q', r: 'w',
-    };
+    // Use desmond's native keyboard API via page.evaluate — this actually works
+    // because desmond listens on its own keyboard handler, not the DOM
+    const key = button.toLowerCase();
+    await this.page.evaluate((k: string) => {
+      const player = document.querySelector('desmond-player') as any;
+      if (player?.keyboard) {
+        player.keyboard.press(k);
+      } else {
+        console.warn('desmond-player keyboard not available');
+      }
+    }, key);
 
-    const key = keyMap[button.toLowerCase()] || button;
-    await this.page.keyboard.press(key);
     await this.page.waitForTimeout(holdMs);
   }
 

@@ -17,7 +17,7 @@ export class OpenRouterVisionProvider implements VisionProvider {
   private model: string;
   private _available = true;
 
-  constructor(apiKey: string, model = 'google/gemma-4-31b-it:free') {
+  constructor(apiKey: string, model = 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free') {
     this.apiKey = apiKey;
     this.model = model;
   }
