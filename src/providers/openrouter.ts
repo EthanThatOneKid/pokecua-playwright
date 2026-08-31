@@ -50,8 +50,9 @@ export class OpenRouterVisionProvider implements VisionProvider {
                 text: `Analyze this Nintendo DS screenshot. What game phase is shown? Be specific about what you see on both screens.`,
               },
               {
-                type: 'image',
-                image: `data:image/png;base64,${base64Image}`,
+                type: 'file',
+                data: `data:image/png;base64,${base64Image}`,
+                mediaType: 'image/png',
               },
             ],
           },
