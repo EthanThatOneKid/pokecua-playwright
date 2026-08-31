@@ -20,11 +20,9 @@ import { VisionProvider, GameState } from './types';
  */
 function fingerprintImage(imagePath: string): string {
   try {
-    // Sample 100 pixels across the image in a grid pattern
-    // Compare RGB values with a tolerance to handle animation frames
-    const pyCode = `from PIL import Image; import hashlib\nimg = Image.open('${imagePath.replace(/\\/g, '/')}').convert('RGB')\nw, h = img.size\npixels = []\nfor i in range(10):\n  for j in range(10):\n    x = int(w * (i + 0.5) / 10)\n    y = int(h * (j + 0.5) / 10)\n    r, g, b = img.getpixel((x, y))\n    pixels.append(r // 16 * 16)  # Quantize to 16 levels to ignore animation\n    pixels.append(g // 16 * 16)\n    pixels.append(b // 16 * 16)\nprint(hashlib.md5(bytes(pixels)).hexdigest())`;
+    const scriptPath = require('path').join(process.cwd(), 'fp.py');
     const { execSync } = require('child_process');
-    const result = execSync(`python -c "${pyCode.replace(/"/g, '\\"')}"`, { timeout: 5000, encoding: 'utf-8' });
+    const result = execSync(`python "${scriptPath}" "${imagePath}"`, { timeout: 5000, encoding: 'utf-8' });
     return result.trim();
   } catch {
     return '';
