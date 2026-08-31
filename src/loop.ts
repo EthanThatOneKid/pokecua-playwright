@@ -34,6 +34,9 @@ export class DecisionLoop {
     console.log(`Decision Loop — max ${this.config.maxSteps} steps`);
     console.log(`${'='.repeat(60)}\n`);
 
+    // Default 3s delay to stay under Groq 8000 TPM limit
+    const cycleDelay = this.config.cycleDelayMs || 3000;
+
     while (this.stepCount < this.config.maxSteps) {
       try {
         const decision = await this.step();
@@ -59,7 +62,7 @@ export class DecisionLoop {
         }
 
         // Delay between cycles
-        await this.sleep(this.config.cycleDelayMs);
+        await this.sleep(cycleDelay);
 
       } catch (err: any) {
         console.error(`[Step ${this.stepCount}] Error: ${err.message}`);
@@ -85,6 +88,17 @@ export class DecisionLoop {
 
     // 2. Parse game state
     const state = await this.parser.parse(screenshotPath);
+
+    // Safety: ensure phase is a valid string
+    if (!state || !state.phase) {
+      return {
+        timestamp: Date.now(),
+        step: this.stepCount,
+        state: { phase: 'unknown', location: '', badges: [], pokemonCount: 0, activePokemon: undefined, opponent: undefined, confidence: 0, description: 'Parser returned empty state' },
+        action: { button: 'a', repeat: 1, delayMs: 500, reasoning: 'Empty parse result — pressing A' },
+        screenshotPath,
+      };
+    }
 
     // 3. Decide action based on state
     const action = this.decide(state);
@@ -118,7 +132,7 @@ export class DecisionLoop {
 
     switch (state.phase) {
       case 'title':
-        return { button: 'a', repeat: 3, delayMs: 400, reasoning: 'Title screen — pressing A to advance' };
+        return { button: 'start', repeat: 1, delayMs: 800, reasoning: 'Title screen — pressing START to begin new game' };
 
       case 'intro':
         return { button: 'a', repeat: 2, delayMs: 300, reasoning: 'Intro cutscene — pressing A to skip' };
