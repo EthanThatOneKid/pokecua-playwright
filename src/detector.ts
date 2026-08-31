@@ -7,27 +7,8 @@
  * 3. Fallback state machine — estimated phase when vision is unavailable
  */
 
-import * as fs from 'fs';
-import * as crypto from 'crypto';
 import { Emulator } from './emulator';
 import { VisionProvider, GameState, ScreenHistoryEntry } from './types';
-
-/**
- * Create a content-based fingerprint by sampling pixel values.
- * Uses child_process to run Python PIL (Node.js PNG parsing is slow).
- * Samples ~100 fixed pixel positions and compares RGB values.
- * Handles animation frames (slight color shifts) while detecting real transitions.
- */
-function fingerprintImage(imagePath: string): string {
-  try {
-    const scriptPath = require('path').join(process.cwd(), 'fp.py');
-    const { execSync } = require('child_process');
-    const result = execSync(`python "${scriptPath}" "${imagePath}"`, { timeout: 5000, encoding: 'utf-8' });
-    return result.trim();
-  } catch {
-    return '';
-  }
-}
 
 /** Check if the error is a rate limit (429) and extract retry-after seconds */
 function parseRetryAfter(errorMessage: string): number | null {
@@ -118,7 +99,7 @@ export class ChangeDetector {
   /** Take screenshot and detect if screen changed */
   async detect(label: string): Promise<ScreenState> {
     const screenshotPath = await this.emulator.screenshot(label);
-    const fingerprint = fingerprintImage(screenshotPath);
+    const fingerprint = await this.emulator.fingerprint();
 
     // Check if screen actually changed
     if (fingerprint === this.lastFingerprint && this.cachedState) {

@@ -211,4 +211,37 @@ export class Emulator {
     }).catch(() => 0);
     return count;
   }
+
+  /** Fingerprint the canvas — sample 100 pixels, quantize, hash. Same content = same hash. */
+  async fingerprint(): Promise<string> {
+    if (!this.page) throw new Error('Emulator not started');
+    return await this.page.evaluate(() => {
+      const player = document.querySelector('desmond-player') as any;
+      if (!player?.shadowRoot) return '';
+      const canvas = player.shadowRoot.querySelector('canvas') as HTMLCanvasElement;
+      if (!canvas) return '';
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return '';
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const w = canvas.width;
+      const h = canvas.height;
+      // Sample 100 pixels on a 10x10 grid, quantize to 16 levels
+      const samples: number[] = [];
+      for (let gy = 0; gy < 10; gy++) {
+        for (let gx = 0; gx < 10; gx++) {
+          const x = Math.floor((gx + 0.5) * w / 10);
+          const y = Math.floor((gy + 0.5) * h / 10);
+          const i = (y * w + x) * 4;
+          samples.push(data[i] >> 4, data[i + 1] >> 4, data[i + 2] >> 4);
+        }
+      }
+      // Simple hash: FNV-1a over the quantized samples
+      let hash = 0x811c9dc5;
+      for (const s of samples) {
+        hash ^= s;
+        hash = Math.imul(hash, 0x01000193);
+      }
+      return (hash >>> 0).toString(16).padStart(8, '0');
+    }).catch(() => '');
+  }
 }
