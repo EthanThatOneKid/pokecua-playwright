@@ -8,7 +8,7 @@
  */
 
 import { Emulator } from './emulator';
-import { VisionProvider, GameState, ScreenHistoryEntry } from './types';
+import { VisionProvider, GameState, ScreenHistoryEntry, Action } from './types';
 
 /** Check if the error is a rate limit (429) and extract retry-after seconds */
 function parseRetryAfter(errorMessage: string): number | null {
@@ -76,23 +76,20 @@ export class ChangeDetector {
   }
 
   /** Get suggested fallback action when vision is unavailable */
-  getFallbackAction(): { button: string; reasoning: string } {
+  getFallbackAction(): Action {
     switch (this.estimatedPhase) {
       case 'title':
-        return { button: 'start', reasoning: 'Title screen — pressing START (fallback)' };
+        return { button: 'start', repeat: 1, delayMs: 3000, reasoning: 'Title — pressing START (fallback)' };
       case 'intro':
-        return { button: 'a', reasoning: 'Intro — waiting (no input needed)' };
+        return { button: 'a', repeat: 0, delayMs: 3000, reasoning: 'Intro — waiting (fallback)' };
       case 'dialog':
-        return { button: 'a', reasoning: 'Dialog — advancing text (fallback)' };
+        return { button: 'a', repeat: 1, delayMs: 1500, reasoning: 'Dialog — advancing text (fallback)' };
       case 'name_entry':
-        return { button: 'a', reasoning: 'Name entry — confirming (fallback)' };
+        return { button: 'a', repeat: 1, delayMs: 2000, reasoning: 'Name entry — confirming (fallback)' };
       case 'gender_selection':
-        return { button: 'a', reasoning: 'Gender — confirming default (fallback)' };
+        return { button: 'a', repeat: 1, delayMs: 2000, reasoning: 'Gender — confirming default (fallback)' };
       default:
-        // Cycle through buttons when completely lost
-        const buttons = ['start', 'a', 'b', 'up', 'down'];
-        const idx = this.stuckCounter % buttons.length;
-        return { button: buttons[idx], reasoning: `Unknown — trying ${buttons[idx]} (fallback)` };
+        return { button: 'a', repeat: 1, delayMs: 1500, reasoning: 'Unknown — pressing A (fallback)' };
     }
   }
 

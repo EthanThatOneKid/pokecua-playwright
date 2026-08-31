@@ -92,8 +92,8 @@ export class Emulator {
       }
     });
 
-    // Wait for ROM to initialize — game needs ~30s to reach title screen
-    await this.page.waitForTimeout(25000);
+    // ROM loaded — bootstrap will poll for title screen
+    await this.page.waitForTimeout(2000);
     console.log('[emulator] ROM loaded');
   }
 

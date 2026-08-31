@@ -1,33 +1,34 @@
 /**
- * Decision loop: screenshot → parse → decide → act → repeat.
+ * Decision loop: screenshot → detect → decide → act → repeat.
  *
  * Starts AFTER bootstrap has navigated past the title screen.
+ * Uses ChangeDetector for fingerprint caching, rate limiting, and history context.
  * Handles dialogue, gender selection, name entry, overworld, battle.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { Emulator } from './emulator';
-import { VisionProvider, GameState, Action, Decision, LoopConfig } from './types';
+import { ChangeDetector, ScreenState } from './detector';
+import { Action, Decision, GameState, LoopConfig } from './types';
 import { typeName } from './bootstrap';
 
 export class DecisionLoop {
   private emulator: Emulator;
-  private parser: VisionProvider;
+  private detector: ChangeDetector;
   private config: LoopConfig;
   private stepCount = 0;
   private history: Decision[] = [];
-  private lastPhase = 'unknown';
 
-  // Name entry tracking
+  // Name entry tracking — by action count, not parser output
   private playerName: string;
   private rivalName: string;
   private namesEntered = 0; // 0=none, 1=player, 2=rival, 3=done
 
-  constructor(emulator: Emulator, config: LoopConfig & { playerName?: string; rivalName?: string }) {
+  constructor(emulator: Emulator, detector: ChangeDetector, config: LoopConfig & { playerName?: string; rivalName?: string }) {
     this.emulator = emulator;
+    this.detector = detector;
     this.config = config;
-    this.parser = config.visionProvider;
     this.playerName = config.playerName || 'ASH';
     this.rivalName = config.rivalName || 'GARY';
   }
@@ -81,6 +82,7 @@ export class DecisionLoop {
 
     console.log(`\n${'='.repeat(60)}`);
     console.log(`Completed ${this.history.length} decision cycles`);
+    console.log(`Parses used: ${this.detector.debug()}`);
     console.log(`${'='.repeat(60)}\n`);
 
     return this.history;
@@ -90,31 +92,23 @@ export class DecisionLoop {
   private async step(): Promise<Decision> {
     this.stepCount++;
 
-    const screenshotPath = await this.emulator.screenshot(`step_${String(this.stepCount).padStart(4, '0')}`);
-    const state = await this.parser.parse(screenshotPath);
+    // Detect: fingerprint + vision parse (with caching, rate limiting, history)
+    const screen = await this.detector.detect(`step_${String(this.stepCount).padStart(4, '0')}`);
 
-    if (!state || !state.phase) {
-      return {
-        timestamp: Date.now(),
-        step: this.stepCount,
-        state: { phase: 'unknown', location: '', badges: [], pokemonCount: 0, confidence: 0, description: 'Parser returned empty state' },
-        action: { button: 'a', repeat: 1, delayMs: 500, reasoning: 'Empty parse — pressing A' },
-        screenshotPath,
-      };
-    }
-
-    const action = this.decide(state);
+    const action = this.decide(screen);
 
     // Execute action
     if (action.button === 'typeName') {
-      // Special: type a name
       const nameToType = this.namesEntered === 0 ? this.playerName : this.rivalName;
       console.log(`  → Typing name: ${nameToType}`);
       await typeName(this.emulator, nameToType);
       this.namesEntered++;
+      this.detector.recordAction('typeName');
+      this.detector.addHistoryEntry(screen.phase, 'typeName', `Typed ${nameToType}`);
       await this.sleep(2000);
     } else if (action.button === 'wait') {
-      // Special: just wait
+      this.detector.recordAction('wait');
+      this.detector.addHistoryEntry(screen.phase, 'wait', 'Waiting');
       await this.sleep(action.delayMs || 3000);
     } else {
       for (let i = 0; i < action.repeat; i++) {
@@ -123,79 +117,86 @@ export class DecisionLoop {
           await this.sleep(action.delayMs);
         }
       }
+      this.detector.recordAction(action.button);
+      this.detector.addHistoryEntry(screen.phase, action.button, action.reasoning);
     }
-
-    this.lastPhase = state.phase;
 
     return {
       timestamp: Date.now(),
       step: this.stepCount,
-      state,
+      state: {
+        phase: screen.phase as GameState['phase'],
+        location: '',
+        badges: [],
+        pokemonCount: 0,
+        confidence: screen.confidence,
+        description: screen.description,
+      },
       action,
-      screenshotPath,
+      screenshotPath: screen.path,
     };
   }
 
-  /** Decide what action to take based on game state */
-  private decide(state: GameState): Action {
+  /** Decide what action to take based on detected screen state */
+  private decide(screen: ScreenState): Action {
+    const phase = screen.phase;
+    const confidence = screen.confidence;
+
+    // Low confidence — use conservative fallback
+    if (confidence < 0.3) {
+      return { button: 'a', repeat: 1, delayMs: 1500, reasoning: 'Low confidence — pressing A' };
+    }
+
     // Track stuck detection
-    this._phaseHistory.push(state.phase);
+    this._phaseHistory.push(phase);
     if (this._phaseHistory.length > 5) this._phaseHistory.shift();
 
     const isStuck = this._phaseHistory.length >= 4 &&
-      this._phaseHistory.slice(-4).every((p) => p === state.phase);
+      this._phaseHistory.slice(-4).every((p) => p === phase);
     if (isStuck) this._stuckCount++;
     else this._stuckCount = 0;
 
-    switch (state.phase) {
+    switch (phase) {
       case 'dialog':
         if (this._stuckCount > 5) {
-          // Might be stuck — try START or B
-          return { button: 'b', repeat: 1, delayMs: 1000, reasoning: 'Dialog stuck — trying B to skip' };
+          return { button: 'b', repeat: 1, delayMs: 1000, reasoning: 'Dialog stuck — trying B' };
         }
-        return { button: 'a', repeat: 1, delayMs: 1500, reasoning: 'Dialog — pressing A to advance text' };
+        return { button: 'a', repeat: 1, delayMs: 1500, reasoning: 'Dialog — advancing text' };
 
       case 'gender_selection':
-        return { button: 'a', repeat: 1, delayMs: 2000, reasoning: 'Gender selection — pressing A to confirm default' };
+        return { button: 'a', repeat: 1, delayMs: 2000, reasoning: 'Gender — confirming default' };
 
       case 'name_entry':
         if (this.namesEntered === 0) {
-          return { button: 'typeName', repeat: 1, delayMs: 0, reasoning: `Name entry — typing player name: ${this.playerName}` };
+          return { button: 'typeName', repeat: 1, delayMs: 0, reasoning: `Typing player name: ${this.playerName}` };
         } else if (this.namesEntered === 1) {
-          return { button: 'typeName', repeat: 1, delayMs: 0, reasoning: `Name entry — typing rival name: ${this.rivalName}` };
+          return { button: 'typeName', repeat: 1, delayMs: 0, reasoning: `Typing rival name: ${this.rivalName}` };
         }
-        // Already typed both names — confirm
         return { button: 'a', repeat: 1, delayMs: 2000, reasoning: 'Name entry — confirming' };
 
       case 'intro':
-        // Could be cutscene still playing or post-bootstrap dialogue
-        // If we've already entered names, this is overworld-related
         if (this.namesEntered >= 2) {
-          return { button: 'a', repeat: 1, delayMs: 2000, reasoning: 'Post-name intro — advancing with A' };
+          return { button: 'a', repeat: 1, delayMs: 2000, reasoning: 'Post-name intro — advancing' };
         }
-        // Otherwise wait — might be cutscene
         return { button: 'wait', repeat: 0, delayMs: 3000, reasoning: 'Intro playing — waiting' };
 
       case 'menu':
-        // If bootstrap ran, menu shouldn't appear. If it does, select top option.
         return { button: 'a', repeat: 1, delayMs: 2000, reasoning: 'Menu — selecting top option' };
 
       case 'battle':
-        return this.decideBattle(state);
+        return this.decideBattle();
 
       case 'overworld':
-        return this.decideOverworld(state);
+        return this.decideOverworld();
 
       case 'title':
-        // Shouldn't happen after bootstrap. Press START as fallback.
-        return { button: 'start', repeat: 1, delayMs: 3000, reasoning: 'Title screen (unexpected after bootstrap) — pressing START' };
+        return { button: 'start', repeat: 1, delayMs: 3000, reasoning: 'Title (unexpected) — pressing START' };
 
       default:
-        // Unknown: try A first, then cycle
-        const buttons = ['a', 'start', 'b', 'a', 'a'] as const;
+        const buttons = ['a', 'start', 'b'] as const;
         const btn = buttons[this._unknownCount % buttons.length];
         this._unknownCount++;
-        if (this._unknownCount > 8) this._unknownCount = 0;
+        if (this._unknownCount > 6) this._unknownCount = 0;
         return { button: btn, repeat: 1, delayMs: 1500, reasoning: `Unknown — trying ${btn.toUpperCase()}` };
     }
   }
@@ -206,30 +207,22 @@ export class DecisionLoop {
   private _stuckCount = 0;
   private _exploreDir = 0;
 
-  private decideBattle(state: GameState): Action {
-    const pokemon = state.activePokemon;
-
-    if (pokemon && pokemon.hpPercent < 20) {
-      this._battleTurn = 0;
-      return { button: 'right', repeat: 2, delayMs: 200, reasoning: `Low HP (${pokemon.hpPercent}%) — navigating to RUN` };
-    }
-
+  private decideBattle(): Action {
     if (this._battleTurn === 0) {
       this._battleTurn++;
       return { button: 'a', repeat: 1, delayMs: 300, reasoning: 'Battle — selecting FIGHT' };
     }
-
     this._battleTurn++;
     if (this._battleTurn > 10) this._battleTurn = 0;
     return { button: 'a', repeat: 1, delayMs: 400, reasoning: 'Battle — selecting move' };
   }
 
-  private decideOverworld(state: GameState): Action {
+  private decideOverworld(): Action {
     const dirs: Array<'up' | 'right' | 'down' | 'left'> = ['up', 'right', 'down', 'left'];
     const dir = dirs[this._exploreDir % dirs.length];
     this._exploreDir++;
     const steps = 2 + Math.floor(Math.random() * 3);
-    return { button: dir, repeat: steps, delayMs: 200, reasoning: `Overworld — exploring ${dir} (${steps} steps)` };
+    return { button: dir, repeat: steps, delayMs: 200, reasoning: `Exploring ${dir} (${steps} steps)` };
   }
 
   private async saveGame(): Promise<void> {

@@ -14,6 +14,8 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 import { runBootstrap } from './bootstrap';
 import { DecisionLoop } from './loop';
+import { ChangeDetector } from './detector';
+import { Emulator } from './emulator';
 import { GroqVisionProvider, GeminiVisionProvider, OpenRouterVisionProvider, FallbackVisionProvider } from './providers';
 
 async function main() {
@@ -80,10 +82,12 @@ async function main() {
 
   // Phase 1: Bootstrap (deterministic, no vision)
   const emulator = await runBootstrap(romPath, outputDir);
+  globalEmulator = emulator;
 
   try {
     // Phase 2: Decision loop (vision-guided)
-    const loop = new DecisionLoop(emulator, {
+    const detector = new ChangeDetector(emulator, parser, maxSteps);
+    const loop = new DecisionLoop(emulator, detector, {
       maxSteps,
       cycleDelayMs: 2000,
       outputDir,
@@ -104,6 +108,20 @@ async function main() {
     await emulator.stop();
   }
 }
+
+let globalEmulator: Emulator | null = null;
+
+// Cleanup on crash or SIGINT — kill orphaned Chrome processes
+process.on('SIGINT', async () => {
+  console.log('\n[shutdown] SIGINT received, cleaning up...');
+  if (globalEmulator) await globalEmulator.stop();
+  process.exit(0);
+});
+process.on('uncaughtException', async (err) => {
+  console.error('[shutdown] Uncaught exception:', err);
+  if (globalEmulator) await globalEmulator.stop();
+  process.exit(1);
+});
 
 main().catch((err) => {
   console.error('Fatal error:', err);
