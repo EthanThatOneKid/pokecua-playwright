@@ -111,9 +111,12 @@ export class Emulator {
   async pressButton(button: string, holdMs = 50): Promise<void> {
     if (!this.page) throw new Error('Emulator not started');
 
-    // Desmond maps browser keyboard events via window.onkeydown/onkeyup
+    // Desmond key mapping (from desmond.min.js keyCode array):
+    // [39,37,40,38,16,13,90,88,65,83,81,87,-1,8]
+    // Right=39, Left=37, Down=40, Up=38, L=16, Start=13,
+    // A=90(z), B=88(x), Y=65(a), X=83(s), L=81(q), R=87(w)
     const keyMap: Record<string, string> = {
-      a: 'a', b: 'b', x: 'x', y: 'y',
+      a: 'z', b: 'x', x: 's', y: 'a',
       up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
       start: 'Enter', select: 'Backspace', l: 'q', r: 'w',
     };
