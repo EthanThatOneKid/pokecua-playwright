@@ -1,7 +1,7 @@
 /** Game state parsed from a screenshot via vision API */
 export interface GameState {
   /** Current game phase */
-  phase: 'title' | 'intro' | 'name_entry' | 'overworld' | 'battle' | 'menu' | 'dialog' | 'save_screen' | 'unknown';
+  phase: 'title' | 'intro' | 'name_entry' | 'gender_selection' | 'overworld' | 'battle' | 'menu' | 'dialog' | 'save_screen' | 'unknown';
   /** Player's current location if identifiable */
   location: string;
   /** Gym badges earned */

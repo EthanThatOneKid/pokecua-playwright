@@ -154,6 +154,9 @@ export class DecisionLoop {
         // Just wait for the animation to finish naturally.
         return { button: 'a', repeat: 0, delayMs: 0, reasoning: 'Intro cutscene — waiting for animation to finish (no input)' };
 
+      case 'gender_selection':
+        return { button: 'a', repeat: 1, delayMs: 500, reasoning: 'Gender selection — pressing A to confirm default' };
+
       case 'name_entry':
         return { button: 'a', repeat: 1, delayMs: 200, reasoning: 'Name entry — pressing A to confirm' };
 
