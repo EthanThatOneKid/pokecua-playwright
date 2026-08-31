@@ -16,7 +16,7 @@ dotenv.config();
 import { spawn } from 'child_process';
 import { Emulator } from './emulator';
 import { ChangeDetector } from './detector';
-import { GroqVisionProvider, GeminiVisionProvider, OllamaVisionProvider, FallbackVisionProvider } from './providers';
+import { GroqVisionProvider, GeminiVisionProvider, OpenRouterVisionProvider, FallbackVisionProvider } from './providers';
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -112,12 +112,31 @@ async function main() {
 
   const emulator = new Emulator(outputDir);
 
-  // Provider chain: Gemini (fast, generous free tier) → Groq → Ollama (local, CPU-slow)
+  // Provider chain: OpenRouter (free, 50 req/day) → Gemini → Groq
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
   const geminiKey = process.env.GOOGLE_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
 
   let parser;
-  if (geminiKey && groqKey) {
+  if (openrouterKey) {
+    // OpenRouter as primary — free vision models, 50 req/day
+    const fallbacks = [];
+    if (geminiKey) fallbacks.push(new GeminiVisionProvider(geminiKey));
+    if (groqKey) fallbacks.push(new GroqVisionProvider(groqKey));
+
+    if (fallbacks.length > 0) {
+      // Chain fallbacks: Gemini → Groq
+      let chain: any = fallbacks[fallbacks.length - 1];
+      for (let i = fallbacks.length - 2; i >= 0; i--) {
+        chain = new FallbackVisionProvider(fallbacks[i], chain);
+      }
+      parser = new FallbackVisionProvider(new OpenRouterVisionProvider(openrouterKey), chain);
+      console.log('[providers] OpenRouter → ' + fallbacks.map(f => f.name).join(' → '));
+    } else {
+      parser = new OpenRouterVisionProvider(openrouterKey);
+      console.log('[providers] OpenRouter only');
+    }
+  } else if (geminiKey && groqKey) {
     parser = new FallbackVisionProvider(
       new GeminiVisionProvider(geminiKey),
       new GroqVisionProvider(groqKey),
@@ -130,7 +149,7 @@ async function main() {
     parser = new GroqVisionProvider(groqKey);
     console.log('[providers] Groq only');
   } else {
-    console.error('No API key! Set GOOGLE_API_KEY or GROQ_API_KEY in .env');
+    console.error('No API key! Set OPENROUTER_API_KEY, GOOGLE_API_KEY, or GROQ_API_KEY in .env');
     process.exit(1);
   }
 
