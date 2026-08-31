@@ -43,6 +43,26 @@ export const gameStateSchema = z.object({
 
 export type GameStateSchema = z.infer<typeof gameStateSchema>;
 
+/**
+ * Build a history context string from the last N screen entries.
+ * This gives the vision model context about what happened before this frame.
+ */
+export function buildHistoryContext(
+  history: Array<{ phase: string; action: string; description: string }>,
+  maxEntries = 8,
+): string {
+  if (!history.length) return '';
+  const recent = history.slice(-maxEntries);
+  const lines = recent.map((h, i) => {
+    const n = history.length - recent.length + i + 1;
+    return `  ${n}. Phase: "${h.phase}" → Action: "${h.action}" — ${h.description || '(no description)'}`;
+  });
+  return `
+SCREEN HISTORY (most recent last):
+${lines.join('\n')}
+`;
+}
+
 /** Shared prompt for all vision providers */
 export const GAME_STATE_PROMPT = `You are a Pokemon game state parser. Analyze this Nintendo DS screenshot
 and extract the current game state.
@@ -69,4 +89,10 @@ Rules:
 - If both screens show a cinematic (no UI), it is "intro".
 - If you see HP bars or party icons, it is "overworld" or "battle".
 - Be specific about what you see — don't guess.
-- Confidence should be lower if the screenshot is blurry or unclear.`;
+- Confidence should be lower if the screenshot is blurry or unclear.
+
+IMPORTANT: Use the SCREEN HISTORY below to inform your analysis. The history shows what screens appeared before this one and what actions were taken. For example:
+- If the last screen was "title" and the action was "start", this screen is likely the main menu or intro cutscene.
+- If the last screens were "dialog" with "a" presses, the game is advancing through dialogue.
+- If the game was on "title" and cycled through several screens back to a similar-looking screen, it may have returned to the title.
+- A screen that looks like "overworld" right after the title screen is more likely the intro cutscene.`;

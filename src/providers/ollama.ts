@@ -9,8 +9,8 @@
 import * as fs from 'fs';
 import { createOllama } from 'ollama-ai-provider-v2';
 import { generateObject } from 'ai';
-import { VisionProvider, GameState } from '../types';
-import { gameStateSchema, GAME_STATE_PROMPT } from './schema';
+import { VisionProvider, GameState, ScreenHistoryEntry } from '../types';
+import { gameStateSchema, GAME_STATE_PROMPT, buildHistoryContext } from './schema';
 
 export class OllamaVisionProvider implements VisionProvider {
   readonly name = 'ollama';
@@ -28,9 +28,10 @@ export class OllamaVisionProvider implements VisionProvider {
     return true; // Lazy check — validated on first parse
   }
 
-  async parse(screenshotPath: string): Promise<GameState> {
+  async parse(screenshotPath: string, history?: ScreenHistoryEntry[]): Promise<GameState> {
     const imageBuffer = fs.readFileSync(screenshotPath);
     const base64Image = imageBuffer.toString('base64');
+    const historyText = history?.length ? buildHistoryContext(history) : '';
 
     const ollama = createOllama({ baseURL: `${this.baseUrl}/api` });
 
@@ -42,7 +43,7 @@ export class OllamaVisionProvider implements VisionProvider {
           {
             role: 'user',
             content: [
-              { type: 'text', text: GAME_STATE_PROMPT },
+              { type: 'text', text: GAME_STATE_PROMPT + historyText },
               {
                 type: 'text',
                 text: `Analyze this Nintendo DS screenshot. What game phase is shown? Be specific about what you see on both screens.`,

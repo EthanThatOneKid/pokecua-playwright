@@ -10,7 +10,7 @@
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { Emulator } from './emulator';
-import { VisionProvider, GameState } from './types';
+import { VisionProvider, GameState, ScreenHistoryEntry } from './types';
 
 /**
  * Create a content-based fingerprint by sampling pixel values.
@@ -66,6 +66,10 @@ export class ChangeDetector {
   private phaseHistory: string[] = [];
   private stuckCounter = 0;
   private lastAction = '';
+
+  // Screen history for context-aware parsing
+  private screenHistory: ScreenHistoryEntry[] = [];
+  private maxHistory = 10;
 
   // Cache
   private cachedState: ScreenState | null = null;
@@ -152,9 +156,9 @@ export class ChangeDetector {
       };
     }
 
-    // Try to parse with vision
+    // Try to parse with vision, passing history for context
     try {
-      const state = await this.parser.parse(screenshotPath);
+      const state = await this.parser.parse(screenshotPath, this.screenHistory);
       this.lastParseTime = Date.now();
       this.consecutive429 = 0;
       this.backoffMs = 0; // Reset backoff on success
@@ -214,6 +218,17 @@ export class ChangeDetector {
     this.estimatedPhase = newPhase;
     this.phaseHistory.push(newPhase);
     if (this.phaseHistory.length > 10) this.phaseHistory.shift();
+  }
+
+  /** Add an entry to the screen history (called after an action is taken) */
+  addHistoryEntry(phase: string, action: string, description: string): void {
+    this.screenHistory.push({ phase, action, description });
+    if (this.screenHistory.length > this.maxHistory) this.screenHistory.shift();
+  }
+
+  /** Get current screen history */
+  getHistory(): ScreenHistoryEntry[] {
+    return [...this.screenHistory];
   }
 
   /** Record what action was taken (for stuck detection) */

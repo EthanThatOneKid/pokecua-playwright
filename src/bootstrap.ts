@@ -191,6 +191,9 @@ async function main() {
         await sleep(2000);
       }
 
+      // Record this screen + action in history for next parse
+      detector.addHistoryEntry(screen.phase, action, screen.description);
+
       // Check for terminal state
       if (screen.phase === 'overworld' && screen.confidence > 0.5) {
         console.log('\n[bootstrap] Reached overworld! Saving game...');

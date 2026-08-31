@@ -7,8 +7,8 @@
 
 import * as fs from 'fs';
 import { spawn } from 'child_process';
-import { VisionProvider, GameState } from '../types';
-import { gameStateSchema, GAME_STATE_PROMPT } from './schema';
+import { VisionProvider, GameState, ScreenHistoryEntry } from '../types';
+import { gameStateSchema, GAME_STATE_PROMPT, buildHistoryContext } from './schema';
 
 /** Run a command and return stdout */
 function runCommand(cmd: string, args: string[], input?: string, timeoutMs = 20000): Promise<string> {
@@ -51,9 +51,10 @@ export class GroqVisionProvider implements VisionProvider {
     this._available = false;
   }
 
-  async parse(screenshotPath: string): Promise<GameState> {
+  async parse(screenshotPath: string, history?: ScreenHistoryEntry[]): Promise<GameState> {
     const imageBuffer = fs.readFileSync(screenshotPath);
     const base64Image = imageBuffer.toString('base64');
+    const historyText = history?.length ? buildHistoryContext(history) : '';
 
     const payload = JSON.stringify({
       model: this.model,
@@ -61,7 +62,7 @@ export class GroqVisionProvider implements VisionProvider {
         {
           role: 'user',
           content: [
-            { type: 'text', text: GAME_STATE_PROMPT },
+            { type: 'text', text: GAME_STATE_PROMPT + historyText },
             {
               type: 'text',
               text: `Respond with JSON only. Phase must be one of: ${gameStateSchema.shape.phase.options.join(', ')}.`,

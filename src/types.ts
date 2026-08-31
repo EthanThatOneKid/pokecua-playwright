@@ -2,13 +2,23 @@
  * Vision provider interface — polymorphic support for Groq, Gemini, etc.
  * Each provider implements the same parse() contract.
  */
+/** A single entry in the screen history context */
+export interface ScreenHistoryEntry {
+  /** Phase that was detected */
+  phase: string;
+  /** What action was taken after this screen */
+  action: string;
+  /** Brief description of what was on screen */
+  description: string;
+}
+
 export interface VisionProvider {
   /** Provider name for logging */
   readonly name: string;
   /** Whether this provider is currently available (not rate-limited, has key, etc.) */
   isAvailable(): boolean;
   /** Parse a screenshot and extract structured game state */
-  parse(screenshotPath: string): Promise<GameState>;
+  parse(screenshotPath: string, history?: ScreenHistoryEntry[]): Promise<GameState>;
 }
 
 /** Game state parsed from a screenshot via vision API */

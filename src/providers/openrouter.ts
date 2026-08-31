@@ -8,8 +8,8 @@
 import * as fs from 'fs';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateObject } from 'ai';
-import { VisionProvider, GameState } from '../types';
-import { gameStateSchema, GAME_STATE_PROMPT } from './schema';
+import { VisionProvider, GameState, ScreenHistoryEntry } from '../types';
+import { gameStateSchema, GAME_STATE_PROMPT, buildHistoryContext } from './schema';
 
 export class OpenRouterVisionProvider implements VisionProvider {
   readonly name = 'openrouter';
@@ -30,9 +30,10 @@ export class OpenRouterVisionProvider implements VisionProvider {
     this._available = false;
   }
 
-  async parse(screenshotPath: string): Promise<GameState> {
+  async parse(screenshotPath: string, history?: ScreenHistoryEntry[]): Promise<GameState> {
     const imageBuffer = fs.readFileSync(screenshotPath);
     const base64Image = imageBuffer.toString('base64');
+    const historyText = history?.length ? buildHistoryContext(history) : '';
 
     const openrouter = createOpenRouter({ apiKey: this.apiKey });
 
@@ -44,7 +45,7 @@ export class OpenRouterVisionProvider implements VisionProvider {
           {
             role: 'user',
             content: [
-              { type: 'text', text: GAME_STATE_PROMPT },
+              { type: 'text', text: GAME_STATE_PROMPT + historyText },
               {
                 type: 'text',
                 text: `Analyze this Nintendo DS screenshot. What game phase is shown? Be specific about what you see on both screens.`,

@@ -7,8 +7,8 @@
 
 import * as fs from 'fs';
 import { spawn } from 'child_process';
-import { VisionProvider, GameState } from '../types';
-import { gameStateSchema, GAME_STATE_PROMPT } from './schema';
+import { VisionProvider, GameState, ScreenHistoryEntry } from '../types';
+import { gameStateSchema, GAME_STATE_PROMPT, buildHistoryContext } from './schema';
 
 /** Run a command and return stdout */
 function runCommand(cmd: string, args: string[], input?: string, timeoutMs = 30000): Promise<string> {
@@ -51,9 +51,10 @@ export class GeminiVisionProvider implements VisionProvider {
     this._available = false;
   }
 
-  async parse(screenshotPath: string): Promise<GameState> {
+  async parse(screenshotPath: string, history?: ScreenHistoryEntry[]): Promise<GameState> {
     const imageBuffer = fs.readFileSync(screenshotPath);
     const base64Image = imageBuffer.toString('base64');
+    const historyText = history?.length ? buildHistoryContext(history) : '';
 
     const jsonFormat = `{"phase":"title|intro|name_entry|gender_selection|overworld|battle|menu|dialog|save_screen|unknown","location":"string","badges":["string"],"pokemonCount":0,"activePokemon":{"name":"string","level":0,"hpPercent":0,"status":"string"},"opponent":{"name":"string","level":0,"hpPercent":0},"confidence":0.0-1.0,"description":"what you see"}`;
 
@@ -61,7 +62,7 @@ export class GeminiVisionProvider implements VisionProvider {
       contents: [
         {
           parts: [
-            { text: GAME_STATE_PROMPT },
+            { text: GAME_STATE_PROMPT + historyText },
             {
               text: `Respond with JSON only. Phase must be one of: ${gameStateSchema.shape.phase.options.join(', ')}.\nJSON format: ${jsonFormat}`,
             },

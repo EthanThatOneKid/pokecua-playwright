@@ -5,7 +5,7 @@
  * Periodically retries primary to detect when quota resets.
  */
 
-import { VisionProvider, GameState } from '../types';
+import { VisionProvider, GameState, ScreenHistoryEntry } from '../types';
 
 export class FallbackVisionProvider implements VisionProvider {
   readonly name: string;
@@ -38,11 +38,11 @@ export class FallbackVisionProvider implements VisionProvider {
     return this.primary;
   }
 
-  async parse(screenshotPath: string): Promise<GameState> {
+  async parse(screenshotPath: string, history?: ScreenHistoryEntry[]): Promise<GameState> {
     const provider = this.getActiveProvider();
 
     try {
-      const result = await provider.parse(screenshotPath);
+      const result = await provider.parse(screenshotPath, history);
 
       // If we were on fallback and primary succeeded, switch back
       if (this.usingFallback && provider === this.primary) {
@@ -64,7 +64,7 @@ export class FallbackVisionProvider implements VisionProvider {
         this.fallbackSince = Date.now();
 
         // Try fallback
-        return await this.fallback.parse(screenshotPath);
+        return await this.fallback.parse(screenshotPath, history);
       }
 
       // If fallback also fails, or it's not a rate limit, rethrow
