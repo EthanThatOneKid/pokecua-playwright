@@ -11,3 +11,4 @@ test_log.txt
 .env
 bootstrap_run.log
 run_bootstrap.sh
+captures/dryrun/
