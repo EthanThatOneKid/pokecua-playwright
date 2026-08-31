@@ -8,3 +8,4 @@ roms/
 .env
 test_keyboard.js
 test_log.txt
+.env

@@ -8,12 +8,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Emulator } from './emulator';
-import { VisionParser } from './vision';
-import { GameState, Action, Decision, LoopConfig } from './types';
+import { VisionProvider, GameState, Action, Decision, LoopConfig } from './types';
 
 export class DecisionLoop {
   private emulator: Emulator;
-  private parser: VisionParser;
+  private parser: VisionProvider;
   private config: LoopConfig;
   private stepCount = 0;
   private history: Decision[] = [];
@@ -22,10 +21,7 @@ export class DecisionLoop {
   constructor(emulator: Emulator, config: LoopConfig) {
     this.emulator = emulator;
     this.config = config;
-    this.parser = new VisionParser(
-      config.groqApiKey,
-      config.groqModel || 'qwen/qwen3.8-27b',
-    );
+    this.parser = config.visionProvider;
   }
 
   /** Run the decision loop */

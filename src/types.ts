@@ -1,3 +1,16 @@
+/**
+ * Vision provider interface — polymorphic support for Groq, Gemini, etc.
+ * Each provider implements the same parse() contract.
+ */
+export interface VisionProvider {
+  /** Provider name for logging */
+  readonly name: string;
+  /** Whether this provider is currently available (not rate-limited, has key, etc.) */
+  isAvailable(): boolean;
+  /** Parse a screenshot and extract structured game state */
+  parse(screenshotPath: string): Promise<GameState>;
+}
+
 /** Game state parsed from a screenshot via vision API */
 export interface GameState {
   /** Current game phase */
@@ -71,8 +84,6 @@ export interface LoopConfig {
   cycleDelayMs: number;
   /** Directory for screenshots */
   outputDir: string;
-  /** Groq API key */
-  groqApiKey: string;
-  /** Groq model to use */
-  groqModel?: string;
+  /** Vision provider (polymorphic — Groq, Gemini, or fallback chain) */
+  visionProvider: VisionProvider;
 }

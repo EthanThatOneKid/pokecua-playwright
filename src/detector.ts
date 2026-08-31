@@ -10,8 +10,7 @@
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { Emulator } from './emulator';
-import { VisionParser } from './vision';
-import { GameState } from './types';
+import { VisionProvider, GameState } from './types';
 
 /** Sample pixels to create a cheap screen fingerprint */
 function fingerprintImage(imagePath: string): string {
@@ -44,7 +43,7 @@ export interface ScreenState {
 }
 
 export class ChangeDetector {
-  private parser: VisionParser;
+  private parser: VisionProvider;
   private emulator: Emulator;
 
   // Pixel diff tracking
@@ -66,7 +65,7 @@ export class ChangeDetector {
   // Cache
   private cachedState: ScreenState | null = null;
 
-  constructor(emulator: Emulator, parser: VisionParser) {
+  constructor(emulator: Emulator, parser: VisionProvider) {
     this.emulator = emulator;
     this.parser = parser;
   }

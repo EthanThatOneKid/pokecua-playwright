@@ -14,8 +14,8 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { Emulator } from './emulator';
-import { VisionParser } from './vision';
 import { ChangeDetector } from './detector';
+import { GroqVisionProvider, GeminiVisionProvider, FallbackVisionProvider } from './providers';
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -96,7 +96,28 @@ async function main() {
   console.log(`Player: ${playerName}, Rival: ${rivalName}\n`);
 
   const emulator = new Emulator(outputDir);
-  const parser = new VisionParser(process.env.GROQ_API_KEY!);
+
+  // Build polymorphic vision provider: Gemini (primary) → Groq (fallback)
+  const geminiKey = process.env.GOOGLE_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY;
+
+  let parser;
+  if (geminiKey && groqKey) {
+    const primary = new GeminiVisionProvider(geminiKey);
+    const fallback = new GroqVisionProvider(groqKey);
+    parser = new FallbackVisionProvider(primary, fallback);
+    console.log(`[providers] Gemini (primary) → Groq (fallback)`);
+  } else if (geminiKey) {
+    parser = new GeminiVisionProvider(geminiKey);
+    console.log(`[providers] Gemini only`);
+  } else if (groqKey) {
+    parser = new GroqVisionProvider(groqKey);
+    console.log(`[providers] Groq only`);
+  } else {
+    console.error('No API key found! Set GOOGLE_API_KEY or GROQ_API_KEY in .env');
+    process.exit(1);
+  }
+
   const detector = new ChangeDetector(emulator, parser);
 
   try {

@@ -10,6 +10,7 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 import { Emulator } from './emulator';
 import { DecisionLoop } from './loop';
+import { GroqVisionProvider, GeminiVisionProvider, FallbackVisionProvider } from './providers';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -27,9 +28,24 @@ async function main() {
   const outputIdx = args.indexOf('--output');
   const outputDir = outputIdx >= 0 ? args[outputIdx + 1] : path.join(process.cwd(), 'captures');
 
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    console.error('GROQ_API_KEY environment variable is required');
+  // Build polymorphic vision provider: Gemini (primary) → Groq (fallback)
+  const geminiKey = process.env.GOOGLE_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY;
+
+  let parser;
+  if (geminiKey && groqKey) {
+    const primary = new GeminiVisionProvider(geminiKey);
+    const fallback = new GroqVisionProvider(groqKey);
+    parser = new FallbackVisionProvider(primary, fallback);
+    console.log('[providers] Gemini (primary) → Groq (fallback)');
+  } else if (geminiKey) {
+    parser = new GeminiVisionProvider(geminiKey);
+    console.log('[providers] Gemini only');
+  } else if (groqKey) {
+    parser = new GroqVisionProvider(groqKey);
+    console.log('[providers] Groq only');
+  } else {
+    console.error('No API key found! Set GOOGLE_API_KEY or GROQ_API_KEY in .env');
     process.exit(1);
   }
 
@@ -50,7 +66,7 @@ async function main() {
       maxSteps,
       cycleDelayMs: 2000,
       outputDir,
-      groqApiKey: apiKey,
+      visionProvider: parser,
     });
 
     const decisions = await loop.run();
