@@ -108,7 +108,7 @@ export class VisionParser {
 
     // Use Python for HTTP because Node.js native fetch/subprocesses hang on this machine
     const pyCode = [
-      'import json, urllib.request, sys',
+      'import json, urllib.request, urllib.error, sys',
       'payload = sys.stdin.read()',
       'req = urllib.request.Request(',
       '    "https://api.groq.com/openai/v1/chat/completions",',
@@ -119,13 +119,25 @@ export class VisionParser {
       '        "User-Agent": "PokeCUA/1.0",',
       '    },',
       ')',
-      'resp = urllib.request.urlopen(req, timeout=15)',
-      'result = json.loads(resp.read())',
-      'content = result["choices"][0]["message"]["content"]',
-      'print(content)',
+      'try:',
+      '    resp = urllib.request.urlopen(req, timeout=15)',
+      '    result = json.loads(resp.read())',
+      '    content = result["choices"][0]["message"]["content"]',
+      '    print(content)',
+      'except urllib.error.HTTPError as e:',
+      '    print(json.dumps({"error": "HTTP " + str(e.code), "phase": "unknown", "confidence": 0, "description": "API error"}))',
+      'except Exception as e:',
+      '    print(json.dumps({"error": str(e), "phase": "unknown", "confidence": 0, "description": "API error"}))',
     ].join('\n');
-    const pyOutput = await runCommand('python', ['-c', pyCode], payload);
+    let pyOutput: string;
+    try {
+      pyOutput = await runCommand('python', ['-c', pyCode], payload);
+    } catch (e: any) {
+      // If spawn itself fails (e.g. killed by timeout), treat as API error
+      throw new Error(e.message?.substring(0, 100));
+    }
     const parsed = JSON.parse(pyOutput.trim());
+    if (parsed.error) throw new Error(parsed.error);
     const zodResult = gameStateSchema.parse(parsed);
     return {
       ...zodResult,

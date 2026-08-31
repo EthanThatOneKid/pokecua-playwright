@@ -142,8 +142,19 @@ async function main() {
       console.log(`\n--- Step ${step} ---`);
 
       // SEE: What's on screen?
-      const screen = await see(emulator, parser, `step_${step}`);
+      let screen;
+      try {
+        screen = await see(emulator, parser, `step_${step}`);
+      } catch (e: any) {
+        console.log(`  Vision failed: ${e.message?.substring(0, 60)}`);
+        screen = { phase: 'unknown', description: 'parse failed', confidence: 0, path: '' };
+      }
       console.log(`  Vision: ${screen.phase} (${screen.confidence}) — ${screen.description.substring(0, 80)}`);
+
+      // If vision fails, wait longer before next attempt (rate limit backoff)
+      if (screen.phase === 'unknown' && screen.confidence === 0) {
+        await sleep(5000);
+      }
 
       // Track stuck states
       if (screen.phase === lastPhase && screen.phase !== 'unknown') {
