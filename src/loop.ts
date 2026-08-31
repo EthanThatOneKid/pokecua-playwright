@@ -130,18 +130,38 @@ export class DecisionLoop {
       this._exploreIdx = 0;
     }
 
+    // Track phase history for stuck detection
+    this._phaseHistory.push(state.phase);
+    if (this._phaseHistory.length > 5) this._phaseHistory.shift();
+
+    // Detect if stuck on same phase
+    const isStuck = this._phaseHistory.length >= 4 &&
+      this._phaseHistory.slice(-4).every((p) => p === state.phase);
+    if (isStuck) this._stuckCount++;
+    else this._stuckCount = 0;
+
     switch (state.phase) {
       case 'title':
-        return { button: 'start', repeat: 1, delayMs: 800, reasoning: 'Title screen — pressing START to begin new game' };
+        // Title screen needs multiple START presses with long delays
+        // First press triggers intro, second press (after animation) starts game
+        if (this._stuckCount > 4) {
+          return { button: 'a', repeat: 1, delayMs: 1000, reasoning: 'Title stuck after many STARTs — trying A' };
+        }
+        return { button: 'start', repeat: 2, delayMs: 3000, reasoning: 'Title screen — pressing START twice with 3s delay' };
 
       case 'intro':
-        return { button: 'a', repeat: 2, delayMs: 300, reasoning: 'Intro cutscene — pressing A to skip' };
+        // Intro cutscene: do NOT press A — it skips back to title.
+        // Just wait for the animation to finish naturally.
+        return { button: 'a', repeat: 0, delayMs: 0, reasoning: 'Intro cutscene — waiting for animation to finish (no input)' };
 
       case 'name_entry':
         return { button: 'a', repeat: 1, delayMs: 200, reasoning: 'Name entry — pressing A to confirm' };
 
       case 'dialog':
         // Advance dialog — press A repeatedly for text boxes
+        if (this._stuckCount > 3) {
+          return { button: 'start', repeat: 1, delayMs: 500, reasoning: 'Dialog stuck — trying START' };
+        }
         return { button: 'a', repeat: 2, delayMs: 250, reasoning: 'Dialog — pressing A to advance text' };
 
       case 'battle':
@@ -154,13 +174,12 @@ export class DecisionLoop {
         return this.decideOverworld(state);
 
       default:
-        // Unknown: try A first, then B if stuck
-        const unknownCount = this._unknownCount++;
-        if (unknownCount > 3) {
-          this._unknownCount = 0;
-          return { button: 'b', repeat: 1, delayMs: 500, reasoning: 'Unknown state for too long — trying B to cancel' };
-        }
-        return { button: 'a', repeat: 1, delayMs: 500, reasoning: 'Unknown state — pressing A' };
+        // Unknown: cycle through A, START, B, D-pad
+        const unknownButtons = ['a', 'start', 'b', 'up'] as const;
+        const btn = unknownButtons[this._unknownCount % unknownButtons.length];
+        this._unknownCount++;
+        if (this._unknownCount > 8) this._unknownCount = 0;
+        return { button: btn, repeat: 1, delayMs: 500, reasoning: `Unknown state — trying ${btn.toUpperCase()}` };
     }
   }
 
@@ -168,6 +187,8 @@ export class DecisionLoop {
   private _exploreIdx = 0;
   private _unknownCount = 0;
   private _battleTurn = 0;
+  private _phaseHistory: string[] = [];
+  private _stuckCount = 0;
 
   /** Battle decision strategy */
   private decideBattle(state: GameState): Action {

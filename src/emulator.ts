@@ -107,11 +107,11 @@ export class Emulator {
     if (fs.existsSync(romDest)) fs.unlinkSync(romDest);
   }
 
-  /** Press an NDS button (browser tab only — never touches host) */
+  /** Press an NDS button via Playwright keyboard (desmond listens on window.onkeydown) */
   async pressButton(button: string, holdMs = 50): Promise<void> {
     if (!this.page) throw new Error('Emulator not started');
 
-    // Desmond keyboard mapping
+    // Desmond maps browser keyboard events via window.onkeydown/onkeyup
     const keyMap: Record<string, string> = {
       a: 'a', b: 'b', x: 'x', y: 'y',
       up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',

@@ -34,10 +34,24 @@ const gameStateSchema = z.object({
 const GAME_STATE_PROMPT = `You are a Pokemon game state parser. Analyze this Nintendo DS screenshot
 and extract the current game state.
 
+The Nintendo DS has two screens stacked vertically (256x192 each). The top screen shows the main game view. The bottom screen shows menus, maps, or touch controls.
+
+Phase definitions:
+- "title": The game title/logo screen (e.g. Pokemon logo). Usually black background with white/colored text.
+- "intro": A cutscene or animation playing BEFORE the player has control. Key signals: cinematic camera angles, characters moving on their own, no visible UI/HUD elements, no HP bars or party display. The intro cutscene often shows a blue sky with clouds and a protagonist silhouette.
+- "overworld": The player character is visible AND has control. Key signals: visible HP bar, party Pokemon icons, location name, or the character is standing still waiting for input. The bottom screen usually shows a map or menu.
+- "battle": Two Pokemon facing each other, HP bars visible, FIGHT/BAG/POKEMON/RUN menu.
+- "dialog": A text box is visible at the bottom of the screen.
+- "menu": The pause menu is open (SAVE, POKEMON, BAG, etc.).
+- "name_entry": A keyboard or letter selection grid is visible.
+- "save_screen": The game asks to save progress.
+- "unknown": Cannot determine what is shown.
+
 Rules:
-- If you cannot determine a field, use sensible defaults (empty string, 0, null).
-- HP percentage should be estimated visually from the HP bar width.
 - If you see a text box, phase should be "dialog".
+- If the bottom screen shows a map or menu icons, the top screen is likely "overworld".
+- If both screens show a cinematic (no UI), it is "intro".
+- If you see HP bars or party icons, it is "overworld" or "battle".
 - Be specific about what you see — don't guess.
 - Confidence should be lower if the screenshot is blurry or unclear.`;
 
