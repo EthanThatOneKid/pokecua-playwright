@@ -151,10 +151,9 @@ async function main() {
       }
       console.log(`  Vision: ${screen.phase} (${screen.confidence}) — ${screen.description.substring(0, 80)}`);
 
-      // If vision fails, wait longer before next attempt (rate limit backoff)
-      if (screen.phase === 'unknown' && screen.confidence === 0) {
-        await sleep(5000);
-      }
+      // Rate limit: Groq free tier is 8000 TPM, image parses use ~2000 tokens
+      // So we can do ~4 parses per minute. Always wait between vision calls.
+      await sleep(15000); // 15s between vision calls to stay under rate limit
 
       // Track stuck states
       if (screen.phase === lastPhase && screen.phase !== 'unknown') {
