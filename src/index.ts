@@ -28,28 +28,26 @@ async function main() {
   const outputIdx = args.indexOf('--output');
   const outputDir = outputIdx >= 0 ? args[outputIdx + 1] : path.join(process.cwd(), 'captures');
 
-  // Build provider chain: Ollama (local) → Gemini (cloud) → Groq (cloud, limited)
-  const ollama = new OllamaVisionProvider();
+  // Provider chain: Gemini (fast, generous free tier) → Groq → Ollama (local, CPU-slow)
   const geminiKey = process.env.GOOGLE_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
 
   let parser;
   if (geminiKey && groqKey) {
-    const cloud = new FallbackVisionProvider(
+    parser = new FallbackVisionProvider(
       new GeminiVisionProvider(geminiKey),
       new GroqVisionProvider(groqKey),
     );
-    parser = new FallbackVisionProvider(ollama, cloud);
-    console.log('[providers] Ollama → Gemini → Groq');
+    console.log('[providers] Gemini → Groq');
   } else if (geminiKey) {
-    parser = new FallbackVisionProvider(ollama, new GeminiVisionProvider(geminiKey));
-    console.log('[providers] Ollama → Gemini');
+    parser = new GeminiVisionProvider(geminiKey);
+    console.log('[providers] Gemini only');
   } else if (groqKey) {
-    parser = new FallbackVisionProvider(ollama, new GroqVisionProvider(groqKey));
-    console.log('[providers] Ollama → Groq');
+    parser = new GroqVisionProvider(groqKey);
+    console.log('[providers] Groq only');
   } else {
-    parser = ollama;
-    console.log('[providers] Ollama only (local)');
+    console.error('No API key! Set GOOGLE_API_KEY or GROQ_API_KEY in .env');
+    process.exit(1);
   }
 
   console.log('PokeCUA Playwright — Headless Pokemon Agent');

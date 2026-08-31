@@ -12,13 +12,20 @@ import * as crypto from 'crypto';
 import { Emulator } from './emulator';
 import { VisionProvider, GameState } from './types';
 
-/** Sample pixels to create a cheap screen fingerprint */
+/**
+ * Create a content-based fingerprint by sampling pixel values.
+ * Uses child_process to run Python PIL (Node.js PNG parsing is slow).
+ * Samples ~100 fixed pixel positions and compares RGB values.
+ * Handles animation frames (slight color shifts) while detecting real transitions.
+ */
 function fingerprintImage(imagePath: string): string {
   try {
-    // Read raw PNG and compute a hash of the first 4KB (fast, cheap)
-    const buffer = fs.readFileSync(imagePath);
-    const sample = buffer.subarray(0, Math.min(4096, buffer.length));
-    return crypto.createHash('md5').update(sample).digest('hex');
+    // Sample 100 pixels across the image in a grid pattern
+    // Compare RGB values with a tolerance to handle animation frames
+    const pyCode = `from PIL import Image; import hashlib\nimg = Image.open('${imagePath.replace(/\\/g, '/')}').convert('RGB')\nw, h = img.size\npixels = []\nfor i in range(10):\n  for j in range(10):\n    x = int(w * (i + 0.5) / 10)\n    y = int(h * (j + 0.5) / 10)\n    r, g, b = img.getpixel((x, y))\n    pixels.append(r // 16 * 16)  # Quantize to 16 levels to ignore animation\n    pixels.append(g // 16 * 16)\n    pixels.append(b // 16 * 16)\nprint(hashlib.md5(bytes(pixels)).hexdigest())`;
+    const { execSync } = require('child_process');
+    const result = execSync(`python -c "${pyCode.replace(/"/g, '\\"')}"`, { timeout: 5000, encoding: 'utf-8' });
+    return result.trim();
   } catch {
     return '';
   }
@@ -65,9 +72,14 @@ export class ChangeDetector {
   // Cache
   private cachedState: ScreenState | null = null;
 
-  constructor(emulator: Emulator, parser: VisionProvider) {
+  // Budget: max parses per session to prevent quota exhaustion
+  private parseBudget: number;
+  private parsesUsed = 0;
+
+  constructor(emulator: Emulator, parser: VisionProvider, maxParses = 20) {
     this.emulator = emulator;
     this.parser = parser;
+    this.parseBudget = maxParses;
   }
 
   /** Get current estimated phase (for fallback decisions) */
@@ -115,9 +127,20 @@ export class ChangeDetector {
     this.lastFingerprint = fingerprint;
     this.lastScreenshotPath = screenshotPath;
 
-    // Check rate limit
+    // Check budget
+    if (this.parsesUsed >= this.parseBudget) {
+      return {
+        phase: this.estimatedPhase,
+        description: `Parse budget exhausted (${this.parseBudget}/${this.parseBudget})`,
+        confidence: 0,
+        path: screenshotPath,
+        fromCache: false,
+      };
+    }
+
+    // Check rate limit — minimum 30s between parses to conserve quota
     const now = Date.now();
-    const minInterval = Math.max(15000, this.backoffMs); // At least 15s between parses
+    const minInterval = Math.max(30000, this.backoffMs); // At least 30s between parses
     const timeSinceLastParse = now - this.lastParseTime;
 
     if (timeSinceLastParse < minInterval) {
@@ -137,6 +160,8 @@ export class ChangeDetector {
       this.lastParseTime = Date.now();
       this.consecutive429 = 0;
       this.backoffMs = 0; // Reset backoff on success
+      this.parsesUsed++;
+      console.log(`    [detector] Parse ${this.parsesUsed}/${this.parseBudget} used`);
 
       // Update estimated phase
       this.updatePhase(state.phase);
@@ -203,8 +228,8 @@ export class ChangeDetector {
     return [
       `phase=${this.estimatedPhase}`,
       `stuck=${this.stuckCounter}`,
+      `parses=${this.parsesUsed}/${this.parseBudget}`,
       `backoff=${Math.round(this.backoffMs / 1000)}s`,
-      `429s=${this.consecutive429}`,
       `history=[${this.phaseHistory.join(',')}]`,
     ].join(', ');
   }
