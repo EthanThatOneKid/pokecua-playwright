@@ -9,3 +9,5 @@ roms/
 test_keyboard.js
 test_log.txt
 .env
+bootstrap_run.log
+run_bootstrap.sh
