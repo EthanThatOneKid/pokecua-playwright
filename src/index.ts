@@ -1,34 +1,41 @@
 /**
  * PokeCUA Playwright — Headless Pokemon agent via browser-based NDS emulator.
- * 
+ *
+ * Two phases:
+ *   1. Bootstrap (deterministic): wait 60s, START, A → New Game
+ *   2. Loop (vision-guided): dialogue, gender, names, overworld
+ *
  * Usage:
- *   npx tsx src/index.ts <path-to-rom.nds> [--steps 100] [--output captures]
+ *   npx tsx src/index.ts <rom.nds> [--steps 100] [--player-name ASH] [--rival-name GARY]
  */
 
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 dotenv.config();
-import { Emulator } from './emulator';
+import { runBootstrap } from './bootstrap';
 import { DecisionLoop } from './loop';
 import { GroqVisionProvider, GeminiVisionProvider, OpenRouterVisionProvider, FallbackVisionProvider } from './providers';
 
 async function main() {
   const args = process.argv.slice(2);
 
-  // Parse arguments
   const romPath = args.find((a) => !a.startsWith('--'));
   if (!romPath) {
-    console.error('Usage: npx tsx src/index.ts <path-to-rom.nds> [--steps N] [--output dir]');
+    console.error('Usage: npx tsx src/index.ts <rom.nds> [--steps N] [--player-name ASH] [--rival-name GARY]');
     process.exit(1);
   }
 
   const stepsIdx = args.indexOf('--steps');
   const maxSteps = stepsIdx >= 0 ? parseInt(args[stepsIdx + 1]) : 100;
 
-  const outputIdx = args.indexOf('--output');
-  const outputDir = outputIdx >= 0 ? args[outputIdx + 1] : path.join(process.cwd(), 'captures');
+  const nameIdx = args.indexOf('--player-name');
+  const playerName = nameIdx >= 0 ? args[nameIdx + 1] : 'ASH';
+  const rivalIdx = args.indexOf('--rival-name');
+  const rivalName = rivalIdx >= 0 ? args[rivalIdx + 1] : 'GARY';
 
-  // Provider chain: OpenRouter (free) → Gemini → Groq
+  const outputDir = path.join(process.cwd(), 'captures');
+
+  // Build provider chain
   const openrouterKey = process.env.OPENROUTER_API_KEY;
   const geminiKey = process.env.GOOGLE_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
@@ -68,30 +75,26 @@ async function main() {
 
   console.log('PokeCUA Playwright — Headless Pokemon Agent');
   console.log(`ROM: ${romPath}`);
-  console.log(`Steps: ${maxSteps}`);
-  console.log(`Output: ${outputDir}`);
-  console.log('');
+  console.log(`Player: ${playerName}, Rival: ${rivalName}`);
+  console.log(`Steps: ${maxSteps}\n`);
 
-  const emulator = new Emulator(outputDir);
+  // Phase 1: Bootstrap (deterministic, no vision)
+  const emulator = await runBootstrap(romPath, outputDir);
 
   try {
-    // Start emulator
-    await emulator.start({ romPath });
-
-    // Create and run decision loop
+    // Phase 2: Decision loop (vision-guided)
     const loop = new DecisionLoop(emulator, {
       maxSteps,
       cycleDelayMs: 2000,
       outputDir,
       visionProvider: parser,
+      playerName,
+      rivalName,
     });
 
     const decisions = await loop.run();
-
-    // Save results
     loop.saveHistory();
 
-    // Summary
     const phases = decisions.map((d) => d.state.phase);
     const uniquePhases = [...new Set(phases)];
     console.log('Phases visited:', uniquePhases.join(', '));

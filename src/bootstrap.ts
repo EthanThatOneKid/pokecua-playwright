@@ -1,43 +1,25 @@
 /**
- * Bootstrap: plays Pokemon Platinum through intro to starter selection.
- * 
- * Uses ChangeDetector for:
- * 1. Pixel diff detection — only parse when screen changes (saves tokens)
- * 2. Rate-limit-aware backoff — exponential backoff on 429
- * 3. Fallback state machine — estimated phase when vision is unavailable
- * 
+ * Bootstrap: deterministic intro sequence — no vision API calls.
+ *
+ * Waits through the title cutscene, presses START, selects New Game.
+ * After this, the generalized vision loop takes over for dialogue,
+ * gender selection, name entry, etc.
+ *
  * Usage:
- *   npx tsx src/bootstrap.ts roms/pokemon-platinum.nds --player-name ASH --rival-name GARY
+ *   npx tsx src/bootstrap.ts <rom.nds>
  */
 
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 dotenv.config();
-import { spawn } from 'child_process';
 import { Emulator } from './emulator';
-import { ChangeDetector } from './detector';
-import { GroqVisionProvider, GeminiVisionProvider, OpenRouterVisionProvider, FallbackVisionProvider } from './providers';
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function runCommand(cmd: string, args: string[], input?: string, timeoutMs = 10000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
-    child.stderr.on('data', () => {});
-    child.on('close', (code) => resolve(code === 0 ? stdout : ''));
-    child.on('error', () => resolve(''));
-    if (input) child.stdin.write(input);
-    child.stdin.end();
-    setTimeout(() => { child.kill(); resolve(''); }, timeoutMs);
-  });
-}
-
 /** Type a name using D-pad navigation on the NDS keyboard grid */
-async function typeName(emulator: Emulator, name: string): Promise<void> {
+export async function typeName(emulator: Emulator, name: string): Promise<void> {
   const keyboard = [
     ['A', 'B', 'C', 'D', 'E', 'F'],
     ['G', 'H', 'I', 'J', 'K', 'L'],
@@ -92,239 +74,60 @@ async function typeName(emulator: Emulator, name: string): Promise<void> {
   console.log('    Name confirmed!');
 }
 
-async function main() {
+/**
+ * Run the deterministic bootstrap sequence.
+ * Returns the Emulator instance for the loop to continue using.
+ */
+export async function runBootstrap(romPath: string, outputDir: string): Promise<Emulator> {
+  const emulator = new Emulator(outputDir);
+
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log('  PokeCUA Bootstrap — Deterministic intro sequence');
+  console.log('═══════════════════════════════════════════════════════════');
+  console.log(`  ROM: ${romPath}\n`);
+
+  await emulator.start({ romPath });
+  console.log('[bootstrap] ROM loaded');
+
+  // Step 1: Wait for title cutscene to finish (~60s)
+  console.log('[bootstrap] Waiting 60s for title cutscene to finish...');
+  await sleep(60_000);
+  console.log('[bootstrap] Cutscene wait complete');
+
+  // Step 2: Press START to open menu
+  console.log('[bootstrap] Pressing START...');
+  await emulator.pressButton('start');
+  await sleep(3_000);
+
+  // Step 3: Press A to select New Game
+  console.log('[bootstrap] Pressing A (New Game)...');
+  await emulator.pressButton('a');
+  await sleep(3_000);
+
+  // Capture a screenshot so we can verify where we are
+  await emulator.screenshot('after_bootstrap');
+  console.log('[bootstrap] Bootstrap complete — vision loop takes over\n');
+
+  return emulator;
+}
+
+// If run directly, execute bootstrap and exit
+if (require.main === module) {
   const args = process.argv.slice(2);
   const romPath = args.find((a) => !a.startsWith('--'));
   if (!romPath) {
-    console.error('Usage: npx tsx src/bootstrap.ts <rom.nds> [--player-name ASH] [--rival-name GARY]');
+    console.error('Usage: npx tsx src/bootstrap.ts <rom.nds>');
     process.exit(1);
   }
 
-  const nameIdx = args.indexOf('--player-name');
-  const playerName = nameIdx >= 0 ? args[nameIdx + 1] : 'ASH';
-  const rivalIdx = args.indexOf('--rival-name');
-  const rivalName = rivalIdx >= 0 ? args[rivalIdx + 1] : 'GARY';
   const outputDir = path.join(process.cwd(), 'captures', 'bootstrap');
-
-  console.log('PokeCUA Bootstrap — Vision-guided intro');
-  console.log(`ROM: ${romPath}`);
-  console.log(`Player: ${playerName}, Rival: ${rivalName}\n`);
-
-  const emulator = new Emulator(outputDir);
-
-  // Provider chain: OpenRouter (free, 50 req/day) → Gemini → Groq
-  const openrouterKey = process.env.OPENROUTER_API_KEY;
-  const geminiKey = process.env.GOOGLE_API_KEY;
-  const groqKey = process.env.GROQ_API_KEY;
-
-  let parser;
-  if (openrouterKey) {
-    // OpenRouter as primary — free vision models, 50 req/day
-    const fallbacks = [];
-    if (geminiKey) fallbacks.push(new GeminiVisionProvider(geminiKey));
-    if (groqKey) fallbacks.push(new GroqVisionProvider(groqKey));
-
-    if (fallbacks.length > 0) {
-      // Chain fallbacks: Gemini → Groq
-      let chain: any = fallbacks[fallbacks.length - 1];
-      for (let i = fallbacks.length - 2; i >= 0; i--) {
-        chain = new FallbackVisionProvider(fallbacks[i], chain);
-      }
-      parser = new FallbackVisionProvider(new OpenRouterVisionProvider(openrouterKey), chain);
-      console.log('[providers] OpenRouter → ' + fallbacks.map(f => f.name).join(' → '));
-    } else {
-      parser = new OpenRouterVisionProvider(openrouterKey);
-      console.log('[providers] OpenRouter only');
-    }
-  } else if (geminiKey && groqKey) {
-    parser = new FallbackVisionProvider(
-      new GeminiVisionProvider(geminiKey),
-      new GroqVisionProvider(groqKey),
-    );
-    console.log('[providers] Gemini → Groq');
-  } else if (geminiKey) {
-    parser = new GeminiVisionProvider(geminiKey);
-    console.log('[providers] Gemini only');
-  } else if (groqKey) {
-    parser = new GroqVisionProvider(groqKey);
-    console.log('[providers] Groq only');
-  } else {
-    console.error('No API key! Set OPENROUTER_API_KEY, GOOGLE_API_KEY, or GROQ_API_KEY in .env');
-    process.exit(1);
-  }
-
-  const detector = new ChangeDetector(emulator, parser);
-
-  try {
-    await emulator.start({ romPath });
-    console.log('[bootstrap] ROM loaded, waiting for init...\n');
-    await sleep(5000);
-
-    // ============================================================
-    // LOOP: Detect → Decide → Act → Repeat
-    // ============================================================
-    let step = 0;
-    const maxSteps = 100;
-
-    while (step < maxSteps) {
-      step++;
-      console.log(`\n--- Step ${step} [${detector.debug()}] ---`);
-
-      // DETECT: What's on screen? (with pixel diff + rate limit awareness)
-      const screen = await detector.detect(`step_${step}`);
-      const source = screen.fromCache ? 'cached' : 'parsed';
-      console.log(`  Screen: ${screen.phase} (${screen.confidence}) [${source}] — ${screen.description.substring(0, 80)}`);
-
-      // DECIDE + ACT
-      let action: string;
-
-      if (screen.confidence > 0) {
-        // Vision gave us a confident answer — use it
-        action = await actOnPhase(emulator, screen.phase, playerName, detector);
-      } else {
-        // Vision unavailable — use fallback state machine
-        const fallback = detector.getFallbackAction();
-        console.log(`  → Fallback: ${fallback.reasoning}`);
-        await emulator.pressButton(fallback.button);
-        detector.recordAction(fallback.button);
-        action = fallback.button;
-        await sleep(2000);
-      }
-
-      // Record this screen + action in history for next parse
-      detector.addHistoryEntry(screen.phase, action, screen.description);
-
-      // Check for terminal state — but verify overworld isn't actually the intro cutscene
-      if (screen.phase === 'overworld' && screen.confidence > 0.5) {
-        const history = detector.getHistory();
-        const lastPhase = history.length > 0 ? history[history.length - 1].phase : '';
-        if (lastPhase === 'title' || lastPhase === 'intro') {
-          console.log('  → Overworld detected but last phase was ' + lastPhase + ' — likely intro cutscene, waiting...');
-          await sleep(5000);
-        } else {
-          console.log('\n[bootstrap] Reached overworld! Saving game...');
-          await saveGame(emulator);
-          await emulator.screenshot('game_saved');
-          console.log('[bootstrap] Game saved! Done.');
-          return;
-        }
-      }
-
-      // Check for save screen
-      if (screen.phase === 'save_screen' && screen.confidence > 0.5) {
-        console.log('\n[bootstrap] Save screen! Confirming...');
-        await emulator.pressButton('a');
-        await sleep(3000);
-        await emulator.screenshot('game_saved');
-        console.log('[bootstrap] Game saved! Done.');
-        return;
-      }
-    }
-
-    console.log(`\n[bootstrap] Reached max steps (${maxSteps}). Check captures/bootstrap/.`);
-
-  } finally {
-    await emulator.stop();
-  }
+  runBootstrap(romPath, outputDir)
+    .then(async (emulator) => {
+      await emulator.stop();
+      console.log('[bootstrap] Emulator stopped');
+    })
+    .catch((err) => {
+      console.error('Fatal error:', err);
+      process.exit(1);
+    });
 }
-
-/** Execute action based on detected phase */
-async function actOnPhase(
-  emulator: Emulator,
-  phase: string,
-  playerName: string,
-  detector: ChangeDetector,
-): Promise<string> {
-  switch (phase) {
-    case 'title':
-      console.log('  → Pressing START');
-      await emulator.pressButton('start');
-      detector.recordAction('start');
-      await sleep(3000);
-      return 'start';
-
-    case 'intro':
-      console.log('  → Intro playing, waiting...');
-      detector.recordAction('wait');
-      await sleep(5000);
-      return 'wait';
-
-    case 'dialog':
-      console.log('  → Advancing dialog (A)');
-      await emulator.pressButton('a');
-      detector.recordAction('a');
-      await sleep(2000);
-      return 'a';
-
-    case 'gender_selection':
-      console.log('  → Confirming default gender (A)');
-      await emulator.pressButton('a');
-      detector.recordAction('a');
-      await sleep(3000);
-      return 'a';
-
-    case 'name_entry':
-      console.log(`  → Typing player name: ${playerName}`);
-      await typeName(emulator, playerName);
-      detector.recordAction('typeName');
-      await sleep(3000);
-      return 'typeName';
-
-    case 'menu':
-      console.log('  → Selecting New Game (A)');
-      await emulator.pressButton('a');
-      detector.recordAction('a');
-      await sleep(3000);
-      return 'a';
-
-    case 'overworld':
-      console.log('  → In overworld!');
-      detector.recordAction('overworld');
-      return 'overworld';
-
-    case 'save_screen':
-      console.log('  → Save screen (A)');
-      await emulator.pressButton('a');
-      detector.recordAction('a');
-      await sleep(2000);
-      return 'a';
-
-    case 'battle':
-      console.log('  → In battle! Selecting FIGHT (A)');
-      await emulator.pressButton('a');
-      detector.recordAction('a');
-      await sleep(2000);
-      return 'a';
-
-    default:
-      console.log('  → Unknown, trying A...');
-      await emulator.pressButton('a');
-      detector.recordAction('a');
-      await sleep(2000);
-      return 'a';
-  }
-}
-
-/** Save game via in-game menu */
-async function saveGame(emulator: Emulator): Promise<void> {
-  await emulator.pressButton('start');
-  await sleep(1000);
-  // Navigate to Save (down 3 times)
-  for (let i = 0; i < 3; i++) {
-    await emulator.pressButton('down');
-    await sleep(200);
-  }
-  await emulator.pressButton('a');
-  await sleep(2000);
-  // Confirm save
-  await emulator.pressButton('a');
-  await sleep(3000);
-  // Close menu
-  await emulator.pressButton('b');
-  await sleep(500);
-}
-
-main().catch((err) => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});

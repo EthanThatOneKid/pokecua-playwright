@@ -52,8 +52,8 @@ export interface GameState {
 
 /** An action the agent can take */
 export interface Action {
-  /** Button to press */
-  button: 'a' | 'b' | 'x' | 'y' | 'up' | 'down' | 'left' | 'right' | 'start' | 'select' | 'l' | 'r';
+  /** Button to press (or 'typeName' for name entry, 'wait' for delay) */
+  button: 'a' | 'b' | 'x' | 'y' | 'up' | 'down' | 'left' | 'right' | 'start' | 'select' | 'l' | 'r' | 'typeName' | 'wait';
   /** Number of times to press */
   repeat: number;
   /** Delay between presses (ms) */
