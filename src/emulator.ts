@@ -191,4 +191,24 @@ export class Emulator {
     if (!this.page) throw new Error('Emulator not started');
     return this.page;
   }
+
+  /** Get the number of unique colors on the canvas (for detecting title screen) */
+  async getCanvasColorCount(): Promise<number> {
+    if (!this.page) throw new Error('Emulator not started');
+    const count = await this.page.evaluate(() => {
+      const player = document.querySelector('desmond-player') as any;
+      if (!player?.shadowRoot) return 0;
+      const canvas = player.shadowRoot.querySelector('canvas') as HTMLCanvasElement;
+      if (!canvas) return 0;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return 0;
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const colors = new Set<string>();
+      for (let i = 0; i < data.length; i += 16) { // sample every 4th pixel
+        colors.add(`${data[i]},${data[i+1]},${data[i+2]}`);
+      }
+      return colors.size;
+    }).catch(() => 0);
+    return count;
+  }
 }

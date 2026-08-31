@@ -89,10 +89,34 @@ export async function runBootstrap(romPath: string, outputDir: string): Promise<
   await emulator.start({ romPath });
   console.log('[bootstrap] ROM loaded');
 
-  // Step 1: Wait for title cutscene to finish (~60s)
-  console.log('[bootstrap] Waiting 60s for title cutscene to finish...');
-  await sleep(60_000);
-  console.log('[bootstrap] Cutscene wait complete');
+  // Step 1: Wait for stable title screen (poll canvas colors)
+  console.log('[bootstrap] Waiting for stable title screen...');
+  let prevColors = 0;
+  let stableCount = 0;
+  let titleFound = false;
+  for (let i = 0; i < 90; i++) { // check every 2s for up to 180s
+    const colors = await emulator.getCanvasColorCount();
+    console.log(`  [${i * 2}s] Canvas colors: ${colors} (prev: ${prevColors})`);
+    
+    // Title screen is stable: high color count that doesn't change much
+    if (colors > 200 && Math.abs(colors - prevColors) < 20) {
+      stableCount++;
+      if (stableCount >= 5) { // stable for 10 seconds — confirms it's the actual title, not a cutscene frame
+        titleFound = true;
+        console.log('[bootstrap] Stable title screen detected!');
+        break;
+      }
+    } else {
+      stableCount = 0;
+    }
+    prevColors = colors;
+    await sleep(2000);
+  }
+  if (!titleFound) {
+    console.log('[bootstrap] WARNING: Title screen not detected after 180s, proceeding anyway');
+  }
+  // Extra 10s buffer — ensure cutscene is fully done
+  await sleep(10_000);
 
   // Step 2: Press START to open menu
   console.log('[bootstrap] Pressing START...');
