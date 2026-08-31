@@ -13,12 +13,27 @@
 import * as path from 'path';
 import * as dotenv from 'dotenv';
 dotenv.config();
+import { spawn } from 'child_process';
 import { Emulator } from './emulator';
 import { ChangeDetector } from './detector';
-import { GroqVisionProvider, GeminiVisionProvider, FallbackVisionProvider } from './providers';
+import { GroqVisionProvider, GeminiVisionProvider, OllamaVisionProvider, FallbackVisionProvider } from './providers';
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function runCommand(cmd: string, args: string[], input?: string, timeoutMs = 10000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
+    child.stderr.on('data', () => {});
+    child.on('close', (code) => resolve(code === 0 ? stdout : ''));
+    child.on('error', () => resolve(''));
+    if (input) child.stdin.write(input);
+    child.stdin.end();
+    setTimeout(() => { child.kill(); resolve(''); }, timeoutMs);
+  });
 }
 
 /** Type a name using D-pad navigation on the NDS keyboard grid */
@@ -97,24 +112,45 @@ async function main() {
 
   const emulator = new Emulator(outputDir);
 
-  // Build polymorphic vision provider: Gemini (primary) → Groq (fallback)
+  // Build polymorphic vision provider chain:
+  // Ollama (local, free, unlimited) → Gemini (cloud) → Groq (cloud, limited)
+  const ollama = new OllamaVisionProvider();
   const geminiKey = process.env.GOOGLE_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
 
+  // Check if Ollama is running
+  let ollamaAvailable = false;
+  try {
+    await runCommand('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', 'http://localhost:11434/api/tags'], undefined, 5000);
+    ollamaAvailable = true;
+  } catch {}
+
   let parser;
-  if (geminiKey && groqKey) {
-    const primary = new GeminiVisionProvider(geminiKey);
-    const fallback = new GroqVisionProvider(groqKey);
-    parser = new FallbackVisionProvider(primary, fallback);
-    console.log(`[providers] Gemini (primary) → Groq (fallback)`);
+  if (ollamaAvailable && geminiKey && groqKey) {
+    // Full chain: Ollama → Gemini → Groq
+    const cloud = new FallbackVisionProvider(
+      new GeminiVisionProvider(geminiKey),
+      new GroqVisionProvider(groqKey),
+    );
+    parser = new FallbackVisionProvider(ollama, cloud);
+    console.log('[providers] Ollama → Gemini → Groq');
+  } else if (ollamaAvailable) {
+    parser = ollama;
+    console.log('[providers] Ollama only (local)');
+  } else if (geminiKey && groqKey) {
+    parser = new FallbackVisionProvider(
+      new GeminiVisionProvider(geminiKey),
+      new GroqVisionProvider(groqKey),
+    );
+    console.log('[providers] Gemini → Groq');
   } else if (geminiKey) {
     parser = new GeminiVisionProvider(geminiKey);
-    console.log(`[providers] Gemini only`);
+    console.log('[providers] Gemini only');
   } else if (groqKey) {
     parser = new GroqVisionProvider(groqKey);
-    console.log(`[providers] Groq only`);
+    console.log('[providers] Groq only');
   } else {
-    console.error('No API key found! Set GOOGLE_API_KEY or GROQ_API_KEY in .env');
+    console.error('No provider available! Need Ollama running, or GOOGLE_API_KEY/GROQ_API_KEY in .env');
     process.exit(1);
   }
 

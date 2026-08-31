@@ -10,7 +10,7 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 import { Emulator } from './emulator';
 import { DecisionLoop } from './loop';
-import { GroqVisionProvider, GeminiVisionProvider, FallbackVisionProvider } from './providers';
+import { GroqVisionProvider, GeminiVisionProvider, OllamaVisionProvider, FallbackVisionProvider } from './providers';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -28,25 +28,28 @@ async function main() {
   const outputIdx = args.indexOf('--output');
   const outputDir = outputIdx >= 0 ? args[outputIdx + 1] : path.join(process.cwd(), 'captures');
 
-  // Build polymorphic vision provider: Gemini (primary) → Groq (fallback)
+  // Build provider chain: Ollama (local) → Gemini (cloud) → Groq (cloud, limited)
+  const ollama = new OllamaVisionProvider();
   const geminiKey = process.env.GOOGLE_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
 
   let parser;
   if (geminiKey && groqKey) {
-    const primary = new GeminiVisionProvider(geminiKey);
-    const fallback = new GroqVisionProvider(groqKey);
-    parser = new FallbackVisionProvider(primary, fallback);
-    console.log('[providers] Gemini (primary) → Groq (fallback)');
+    const cloud = new FallbackVisionProvider(
+      new GeminiVisionProvider(geminiKey),
+      new GroqVisionProvider(groqKey),
+    );
+    parser = new FallbackVisionProvider(ollama, cloud);
+    console.log('[providers] Ollama → Gemini → Groq');
   } else if (geminiKey) {
-    parser = new GeminiVisionProvider(geminiKey);
-    console.log('[providers] Gemini only');
+    parser = new FallbackVisionProvider(ollama, new GeminiVisionProvider(geminiKey));
+    console.log('[providers] Ollama → Gemini');
   } else if (groqKey) {
-    parser = new GroqVisionProvider(groqKey);
-    console.log('[providers] Groq only');
+    parser = new FallbackVisionProvider(ollama, new GroqVisionProvider(groqKey));
+    console.log('[providers] Ollama → Groq');
   } else {
-    console.error('No API key found! Set GOOGLE_API_KEY or GROQ_API_KEY in .env');
-    process.exit(1);
+    parser = ollama;
+    console.log('[providers] Ollama only (local)');
   }
 
   console.log('PokeCUA Playwright — Headless Pokemon Agent');
