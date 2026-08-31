@@ -6,6 +6,8 @@
  */
 
 import * as path from 'path';
+import * as dotenv from 'dotenv';
+dotenv.config();
 import { Emulator } from './emulator';
 import { DecisionLoop } from './loop';
 

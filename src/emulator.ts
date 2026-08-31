@@ -33,16 +33,20 @@ export class Emulator {
 
   /** Start the HTTP server and browser */
   async start(config: EmulatorConfig): Promise<void> {
-    // Start HTTP server
+    // Start HTTP server — serves from project root + node_modules
+    const projectRoot = path.resolve(__dirname, '..');
     this.server = http.createServer((req, res) => {
-      let filePath: string;
       const url = req.url || '/';
+      let filePath: string;
       if (url === '/') {
-        filePath = path.join(__dirname, '..', 'emulator.html');
+        filePath = path.join(projectRoot, 'emulator.html');
       } else {
-        filePath = path.join(__dirname, '..', decodeURIComponent(url));
+        const decoded = decodeURIComponent(url);
+        // Resolve relative to project root (covers /node_modules/... paths too)
+        filePath = path.join(projectRoot, decoded);
       }
       if (!fs.existsSync(filePath)) {
+        console.log(`[HTTP] 404: ${url}`);
         res.writeHead(404);
         res.end();
         return;
@@ -66,9 +70,9 @@ export class Emulator {
     await this.page.goto(`http://localhost:${this.port}/`);
     await this.page.waitForTimeout(5000);
 
-    // Copy ROM to serve it
+    // Copy ROM to project root for serving
     const romAbs = path.resolve(config.romPath);
-    const romDest = path.join(__dirname, '..', 'rom.nds');
+    const romDest = path.join(projectRoot, 'rom.nds');
     if (!fs.existsSync(romDest)) {
       fs.copyFileSync(romAbs, romDest);
     }

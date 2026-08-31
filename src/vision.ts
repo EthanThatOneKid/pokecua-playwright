@@ -64,8 +64,9 @@ export class VisionParser {
           content: [
             { type: 'text', text: GAME_STATE_PROMPT },
             {
-              type: 'image',
-              image: imageBuffer,
+              type: 'file',
+              data: imageBuffer,
+              mediaType: 'image/png',
             },
           ],
         },
