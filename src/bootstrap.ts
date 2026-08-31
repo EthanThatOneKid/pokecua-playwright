@@ -24,6 +24,50 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Wait until the screen stabilizes (colors stop changing) before capturing */
+async function captureWhenStable(emulator: Emulator, label: string, maxWaitMs = 15000): Promise<string> {
+  const start = Date.now();
+  let prevColors = 0;
+  let stableCount = 0;
+
+  while (Date.now() - start < maxWaitMs) {
+    await sleep(1000);
+    
+    // Take a temporary capture to check stability
+    const tmpPath = await emulator.screenshot(`${label}_tmp`);
+    const { execSync } = require('child_process');
+    
+    try {
+      const result = execSync(
+        `python -c "from PIL import Image; img=Image.open('${tmpPath.replace(/\\/g, '/')}'); print(len(img.getcolors(maxcolors=100000)))"`,
+        { encoding: 'utf-8' }
+      ).trim();
+      const colors = parseInt(result);
+      
+      if (colors === prevColors && colors > 1) {
+        stableCount++;
+        if (stableCount >= 2) {
+          // Screen stable for 2 seconds
+          const fs = require('fs');
+          const finalPath = tmpPath.replace('_tmp', '');
+          fs.renameSync(tmpPath, finalPath);
+          console.log(`    Screen stable (${colors} colors) after ${Date.now() - start}ms`);
+          return finalPath;
+        }
+      } else {
+        stableCount = 0;
+      }
+      prevColors = colors;
+    } catch (e) {
+      // Python not available, just wait
+    }
+  }
+
+  // Fallback: just capture after max wait
+  console.log(`    Max wait reached, capturing anyway`);
+  return emulator.screenshot(label);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const romPath = args.find((a) => !a.startsWith('--'));
@@ -128,29 +172,32 @@ async function main() {
     
     // Press A to confirm rival name
     await emulator.pressButton('a');
-    await sleep(2000);
+    await sleep(5000);  // Longer wait for name confirmation animation
 
     // Press A through any remaining dialogue
     for (let i = 0; i < 5; i++) {
       await emulator.pressButton('a');
-      await sleep(1500);
+      await sleep(2000);  // Longer delays between dialogue advances
     }
 
-    await emulator.screenshot('phase6_game_start');
+    // Wait for transition to complete
+    await sleep(5000);
+    await captureWhenStable(emulator, 'phase6_game_start', 15000);
 
     // ============================================================
     // PHASE 7: Navigate to overworld
     // ============================================================
     console.log('\n[Phase 7] Waiting for overworld to load');
-    await sleep(5000);
+    await sleep(10000);  // 10s for the game to fully load
 
     // Press A a few more times to advance through any remaining text
     for (let i = 0; i < 3; i++) {
       await emulator.pressButton('a');
-      await sleep(1000);
+      await sleep(2000);
     }
 
-    await emulator.screenshot('phase7_overworld');
+    // Wait for overworld to stabilize
+    await captureWhenStable(emulator, 'phase7_overworld', 20000);
 
     console.log('\n[bootstrap] Done! Check captures/bootstrap/ for screenshots.');
 
